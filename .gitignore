@@ -1,0 +1,28 @@
+# OS/editor artifacts
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Environment and secrets
+.env
+.env.*
+*.pem
+*.key
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Node
+node_modules/
+
+# Build outputs
+dist/
+build/
+out/
+coverage/
+
+# Local workspace metadata
+.directory
