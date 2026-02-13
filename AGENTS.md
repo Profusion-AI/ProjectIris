@@ -1,37 +1,42 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-This repository is documentation-first and currently stores content at the root.
-- `README.md`: primary architecture overview and core narrative.
-- `gcp-spanner-gettingstarted.md`: focused Google Cloud Spanner setup guide.
+Project Iris is organized as an architecture-first monorepo:
+- `services/`: backend components (`transport-core/` in Rust, `iris-server/` in Mojo).
+- `apps/`: frontend surfaces (`player-web/` in TypeScript, `control-plane/`).
+- `platform/`: shared capabilities (`data/`, `messaging/`, `graph/`).
+- `infra/`: deployment and provisioning (`terraform/`, `kubernetes/`).
+- `docs/`: architecture, roadmap, platform notes, and runbooks.
+- `tests/`: integration and end-to-end suites.
 
-When adding content, keep one topic per file and use descriptive `kebab-case` names (for example, `moq-latency-notes.md`). Link new documents from `README.md` so readers can discover them quickly.
+Keep new work inside domain folders; avoid adding product code at repo root.
 
 ## Build, Test, and Development Commands
-There is no build pipeline or runtime service in this repo. Use lightweight checks:
-- `rg --files`: list tracked documentation files.
-- `wc -w *.md`: quick word-count pass for concision.
-- `markdownlint *.md` (if installed): validate Markdown style and heading consistency.
+Early-stage commands for repo hygiene:
+- `rg --files`: list tracked files quickly.
+- `find . -maxdepth 3 -type d | sort`: inspect architecture layout.
+- `markdownlint "**/*.md"` (if installed): enforce Markdown consistency.
+- `git log --oneline --decorate -n 10`: review recent architectural decisions.
+
+As components mature, add component-local commands in each folder README (for example, Cargo or TypeScript scripts).
 
 ## Coding Style & Naming Conventions
-Write in clear, technical Markdown with short sections and actionable language.
-- Use `#`/`##`/`###` ATX headings in a logical hierarchy.
-- Prefer fenced code blocks with language tags (for example, ` ```sql `).
-- Keep examples copy/paste-ready and scoped to the section topic.
-- Use `kebab-case` for file names and avoid spaces.
-- Date time-sensitive claims explicitly (for example, “as of 2026-02-13”).
+- Use `kebab-case` for folders and Markdown files.
+- Prefer concise docs with explicit dates for time-sensitive claims (`YYYY-MM-DD`).
+- In Rust, Mojo, and TypeScript code, keep modules small and domain-scoped.
+- Name ADRs as `adr-XXXX-short-title.md` under `docs/architecture/`.
 
 ## Testing Guidelines
-Testing here means documentation quality checks:
-- Run linting (`markdownlint *.md`) before opening a PR.
-- Manually verify command snippets and SQL examples for syntax correctness.
-- Confirm internal links and filenames resolve correctly after edits.
+- Place cross-service checks in `tests/integration/`.
+- Place user-journey/system checks in `tests/e2e/`.
+- Validate examples and command snippets before merging.
+- Add test strategy notes in component READMEs until unified tooling is established.
 
 ## Commit & Pull Request Guidelines
-Git history is not available in this workspace snapshot, so use a standard convention:
-- Commit format: `docs: concise imperative summary` (example: `docs: add spanner trial setup caveats`).
-- Keep commits focused on a single document concern.
-- PRs should include: purpose, files changed, key reader impact, and any source links for factual updates.
+- Follow conventional-style commits (`docs:`, `chore:`, `feat:`, `fix:`).
+- Keep commits single-purpose and scoped to one concern.
+- PRs should include: summary, changed paths, validation steps, and follow-up work.
+- Link roadmap or ADR docs when a change introduces architectural impact.
 
 ## Security & Configuration Tips
-Do not commit secrets, tokens, or real project IDs in examples. Use placeholders like `<PROJECT_ID>` and redact sensitive values in command output.
+Do not commit secrets or cloud credentials. Use placeholders such as `<PROJECT_ID>` and keep environment-specific values in ignored `.env` files.

@@ -26,3 +26,10 @@ coverage/
 
 # Local workspace metadata
 .directory
+
+# Rust
+target/
+
+# JS tooling
+.next/
+.turbo/

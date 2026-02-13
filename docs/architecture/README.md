@@ -1,7 +1,11 @@
 # Architecture
 
-Use this folder for ADRs and high-level system diagrams.
+System design notes and architectural decision records.
 
-Suggested naming:
-- `adr-0001-system-boundaries.md`
-- `adr-0002-data-model-strategy.md`
+## Files
+- `greenfield-video-stack-2026.md`: core stack framing document.
+- `adr-0001-runtime-and-deployment.md`: runtime and deployment baseline.
+
+Suggested naming for future ADRs:
+- `adr-0002-transport-api-contract.md`
+- `adr-0003-spanner-schema-partitioning.md`
