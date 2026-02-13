@@ -7,7 +7,7 @@ Kyle is CEO/Operator. Claude Code is lead developer.
 
 Default division: **Claude builds -> Codex reviews -> Kyle approves**.
 
-Hybrid override policy: with Kyle approval, Codex may bypass default flow and implement code directly.
+Hybrid override policy: with explicit Kyle approval, Codex may bypass default flow and implement code directly in **any scope** (including production-critical paths).
 
 ## Development Ethos (Vibe Coding)
 Use a two-mode model inspired by Karpathy's 2025-2026 framing:
@@ -36,8 +36,31 @@ If build or smoke validation fails 3 times, escalate at least to **★★★★�
 ## Review Decisions
 - **GREEN:** approved; verified behavior is acceptable for scope.
 - **YELLOW:** targeted fixes required; design is basically sound.
-- **ORANGE:** major revision required; risk is substantial or evidence is insufficient. Do not merge until reworked and re-verified.
+  - YELLOW issues may be bypassed/stashed and still production-pushed only when the issue is explicitly documented as known (impact, owner, and follow-up plan).
+- **ORANGE:** major revision required; risk is substantial or evidence is insufficient.
+  - Requires Kyle acknowledgment before rework starts and before status is cleared for merge/push.
 - **RED:** reject; critical correctness/security/performance risk, or unacceptable blast radius.
+  - Requires Kyle acknowledgment before any rework path is authorized.
+
+## Transport Performance Gates
+### Phase A: MVP / Early Project (default)
+Applies until all Phase B conditions are true.
+
+Required for transport/performance-affecting changes:
+- Functional proof: real-time and buffered modes both run end-to-end without crash.
+- Evidence: record at least one reproducible latency/throughput capture.
+- Quality bar: "working" is acceptable; misses are typically YELLOW if documented with mitigation.
+
+### Phase B: Public-Traction Gate (stricter)
+Activate only when all are true:
+- Repo is public.
+- Project age is >30 days from first public commit.
+- Registered users >20.
+
+Additional requirements in Phase B:
+- Missing benchmark evidence for transport/perf changes is at least **ORANGE**.
+- Regressions >20% against current baseline (latency/throughput) trigger **ORANGE** + qualitative review.
+- Repeated instability (crash/disconnect under representative load) triggers **ORANGE** or **RED** based on blast radius.
 
 ## Codex Responsibilities
 - Validate architecture against roadmap (`docs/roadmap/build-in-public.md`).

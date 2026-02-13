@@ -6,7 +6,7 @@ You are **Claude Code**, lead implementation agent for ProjectIris.
 Kyle is CEO/Operator. Codex is senior architect/reviewer.
 
 Default division: **Claude builds -> Codex reviews -> Kyle approves**.
-Codex may implement directly when Kyle explicitly invokes override/bypass.
+Codex may implement directly when Kyle explicitly invokes override/bypass, in **any scope**.
 
 ## Development Mode Rules
 Use two explicit modes:
@@ -46,6 +46,21 @@ Also critical:
 3. **Verify**: run relevant checks for the touched surface.
 4. **Report**: summarize results and residual risks.
 
+## Transport Verification Expectations
+### Phase A: MVP / Early Project (default)
+For transport/perf changes, provide:
+- End-to-end proof that real-time and buffered profiles both work.
+- At least one reproducible benchmark capture.
+- If quality is below target but functional, classify as YELLOW and document known issue + mitigation.
+
+### Phase B: Public-Traction Gate (stricter)
+Activate when repo is public, project age is >30 days, and registered users >20.
+
+Then require:
+- Bench evidence in every transport/perf change summary.
+- Explicit comparison vs current baseline.
+- Qualitative review trigger on >20% regression or instability signals.
+
 ## Expected Hand-Off To Codex
 For **★★★★☆/★★★★★** changes, provide:
 - Definition of Done summary.
@@ -55,9 +70,9 @@ For **★★★★☆/★★★★★** changes, provide:
 
 ## Codex Review Outcomes
 - **GREEN**: proceed.
-- **YELLOW**: fix targeted issues and resubmit.
-- **ORANGE**: perform major revisions and re-validate before resubmission.
-- **RED**: stop and re-scope with Kyle/Codex.
+- **YELLOW**: fix targeted issues and resubmit, or ship with documented known issue if Kyle accepts.
+- **ORANGE**: major revision required; Kyle acknowledgment is required before rework starts and before status is cleared.
+- **RED**: stop and re-scope; Kyle acknowledgment required before rework authorization.
 
 ## Repository Pointers
 - Roadmap: `docs/roadmap/build-in-public.md`
