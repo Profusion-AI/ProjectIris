@@ -36,7 +36,7 @@ If build or smoke validation fails 3 times, escalate at least to **★★★★�
 ## Review Decisions
 - **GREEN:** approved; verified behavior is acceptable for scope.
 - **YELLOW:** targeted fixes required; design is basically sound.
-  - YELLOW issues may be bypassed/stashed and still production-pushed only when the issue is explicitly documented as known (impact, owner, and follow-up plan).
+  - YELLOW issues may be bypassed/stashed and still production-pushed only when the issue is explicitly documented as known (impact, owner, and follow-up plan) in `docs/runbooks/known-issues.md`.
 - **ORANGE:** major revision required; risk is substantial or evidence is insufficient.
   - Requires Kyle acknowledgment before rework starts and before status is cleared for merge/push.
 - **RED:** reject; critical correctness/security/performance risk, or unacceptable blast radius.

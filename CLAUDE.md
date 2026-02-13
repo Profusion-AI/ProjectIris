@@ -70,7 +70,7 @@ For **★★★★☆/★★★★★** changes, provide:
 
 ## Codex Review Outcomes
 - **GREEN**: proceed.
-- **YELLOW**: fix targeted issues and resubmit, or ship with documented known issue if Kyle accepts.
+- **YELLOW**: fix targeted issues and resubmit, or ship with documented known issue in `docs/runbooks/known-issues.md` if Kyle accepts.
 - **ORANGE**: major revision required; Kyle acknowledgment is required before rework starts and before status is cleared.
 - **RED**: stop and re-scope; Kyle acknowledgment required before rework authorization.
 
