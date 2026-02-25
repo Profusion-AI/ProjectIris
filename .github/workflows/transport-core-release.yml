@@ -1,0 +1,31 @@
+name: transport-core-release
+
+on:
+  push:
+    tags:
+      - 'transport-core-v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/transport-core
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build source archive
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          mkdir -p dist
+          git archive --format=tar.gz --output="dist/${VERSION}.tar.gz" --prefix="iris-transport-core/" HEAD:services/transport-core
+          sha256sum "dist/${VERSION}.tar.gz" > "dist/${VERSION}.sha256"
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            services/transport-core/dist/*.tar.gz
+            services/transport-core/dist/*.sha256
+          generate_release_notes: true

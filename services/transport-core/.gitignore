@@ -1,0 +1,5 @@
+/target
+/certs
+/docs/evidence/*
+!/docs/evidence/README.md
+*.log

@@ -1,0 +1,43 @@
+[package]
+name = "iris-transport-core"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-only"
+description = "MoQ-like QUIC transport proof of concept for Project Iris"
+repository = "https://github.com/project-iris/iris-transport-core"
+
+[lib]
+name = "iris_transport_core"
+path = "src/lib.rs"
+
+[[bin]]
+name = "iris-relay"
+path = "src/bin/iris-relay.rs"
+
+[[bin]]
+name = "iris-send"
+path = "src/bin/iris-send.rs"
+
+[[bin]]
+name = "iris-recv"
+path = "src/bin/iris-recv.rs"
+
+[dependencies]
+anyhow = "1"
+bytes = "1"
+clap = { version = "4", features = ["derive"] }
+futures = "0.3"
+quinn = "0.11"
+rcgen = "0.12"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "io-util", "sync", "time", "signal", "fs"] }
+tokio-stream = "0.1"
+toml = "0.8"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
+rustls-pemfile = "2"
+
+[dev-dependencies]
+tempfile = "3"
