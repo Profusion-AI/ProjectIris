@@ -156,7 +156,7 @@ As of 2026-02-25, the transport milestone moved from design intent to enforceabl
 
 * Transport PoC scaffold exists in `services/transport-core/` (relay, sender/receiver CLIs, framing, profiles, smoke test, scripts, docs).
 * GitHub Actions workflow `transport-core-ci` is active and has a successful run on `main` for commit `21958e4`.
-* `main` branch protection requires the `test` status check, one PR approval, stale review dismissal, conversation resolution, linear history, and disallows force-push/delete.
+* `main` branch protection requires `repo-gate` and `test` status checks, one PR approval, stale review dismissal, conversation resolution, linear history, and disallows force-push/delete.
 
 Business interpretation: the transport line is now governed by measurable release controls, reducing operational risk as early traction and revenue begin.
 

@@ -1,0 +1,24 @@
+name: repo-gate
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  repo-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Repository invariants
+        run: bash scripts/ci/repo_gate.sh
+
+      - name: AGPLv3 header enforcement (core source files)
+        run: bash scripts/licensing/check_agpl_headers.sh

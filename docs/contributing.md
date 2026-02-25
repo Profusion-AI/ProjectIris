@@ -40,6 +40,10 @@ As components mature, add component-local commands in each folder README (for ex
   - required pull request review approvals,
   - stale review dismissal,
   - conversation resolution before merge.
+- `repo-gate` and `test` are required branch protection contexts for `main` and must pass on every merge path.
+- `repo-gate` enforces AGPLv3 SPDX headers (`SPDX-License-Identifier: AGPL-3.0-only`) on newly added core source files under:
+  - `services/iris-server/**`
+  - `services/transport-core/**`
 - Do not bypass failed checks for production-critical scope without explicit, documented approval and a follow-up plan in `docs/runbooks/known-issues.md`.
 - For transport/performance-affecting work, preserve reproducible evidence capture (tests, smoke, benchmark artifacts) so release decisions are evidence-based.
 - Docs fast-lane uses a controlled nightly sync:
