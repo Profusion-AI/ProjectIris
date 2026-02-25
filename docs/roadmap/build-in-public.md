@@ -23,3 +23,29 @@ Goal: attract ML contributors and explain long-term infra economics.
 5. Next: `iris-graph` on Spanner
 Action: define graph-first schema and high-volume comment simulation.
 Goal: prove social-state scalability and linear behavior under load.
+
+## Delivery Governance Baseline
+- CI/CD and branch protection are required risk controls for each public milestone.
+- Milestones are not considered complete until automated checks are passing and merge protections are enforced on `main`.
+
+## Readiness Snapshot (2026-02-25)
+- Week 1 (`iris-transport-core`): `In Progress / Operationally Gated`.
+- Completed:
+  - Rust transport PoC scaffold and CLI flows added under `services/transport-core/`.
+  - GitHub Actions workflow `transport-core-ci` is active and passing on `main`.
+  - `main` protection now requires CI status check `test` plus PR review controls.
+- Remaining for transport hardening:
+  - benchmark evidence discipline across releases,
+  - authn/authz and abuse-resistance hardening,
+  - additional protocol robustness/interoperability coverage.
+
+## Week 3 Start Decision (`iris-server`)
+- Decision: `GO (Conditional)`.
+- Scope allowed now:
+  - simple HTTP endpoint in Mojo,
+  - matrix-heavy compute benchmark path,
+  - published benchmark against Python baseline.
+- Non-negotiables while executing Week 3:
+  - keep transport hardening backlog explicit and tracked,
+  - maintain green CI on `main`,
+  - document residual risk and rollback notes for production-critical changes.

@@ -32,6 +32,21 @@ As components mature, add component-local commands in each folder README (for ex
 - Validate examples and command snippets before merging.
 - Add test strategy notes in component READMEs until unified tooling is established.
 
+## CI/CD Business Risk Control
+- Treat GitHub Actions as a business control system, not only an engineering convenience.
+- Require automated checks before merge on protected branches to reduce release regressions, incident response cost, and customer trust risk.
+- Keep branch protection enabled for default branches with at least:
+  - required status checks from GitHub Actions,
+  - required pull request review approvals,
+  - stale review dismissal,
+  - conversation resolution before merge.
+- Do not bypass failed checks for production-critical scope without explicit, documented approval and a follow-up plan in `docs/runbooks/known-issues.md`.
+- For transport/performance-affecting work, preserve reproducible evidence capture (tests, smoke, benchmark artifacts) so release decisions are evidence-based.
+- Docs fast-lane uses a controlled nightly sync:
+  - push docs-only work to `docs-staging`,
+  - GitHub Actions workflow `docs-daily-sync` runs at `22:00 UTC`,
+  - the workflow creates/updates a PR from `docs-staging` to `main` only when the diff is limited to `docs/**`.
+
 ## Commit & Pull Request Guidelines
 - Follow conventional-style commits (`docs:`, `chore:`, `feat:`, `fix:`).
 - Keep commits single-purpose and scoped to one concern.

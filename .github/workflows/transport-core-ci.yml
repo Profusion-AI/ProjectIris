@@ -2,9 +2,7 @@ name: transport-core-ci
 
 on:
   pull_request:
-    paths:
-      - 'services/transport-core/**'
-      - '.github/workflows/transport-core-ci.yml'
+    branches: [ main ]
   push:
     branches: [ main ]
     paths:
@@ -14,18 +12,35 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: services/transport-core
     steps:
       - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: changes
+        with:
+          filters: |
+            transport_core:
+              - 'services/transport-core/**'
+              - '.github/workflows/transport-core-ci.yml'
+      - name: policy-pass
+        if: steps.changes.outputs.transport_core != 'true'
+        run: echo "No transport-core changes; required check satisfied."
       - uses: dtolnay/rust-toolchain@stable
+        if: steps.changes.outputs.transport_core == 'true'
       - uses: Swatinem/rust-cache@v2
+        if: steps.changes.outputs.transport_core == 'true'
       - name: fmt
+        if: steps.changes.outputs.transport_core == 'true'
+        working-directory: services/transport-core
         run: cargo fmt --all -- --check
       - name: clippy
+        if: steps.changes.outputs.transport_core == 'true'
+        working-directory: services/transport-core
         run: cargo clippy --all-targets -- -D warnings
       - name: test
+        if: steps.changes.outputs.transport_core == 'true'
+        working-directory: services/transport-core
         run: cargo test --all-targets
       - name: smoke
+        if: steps.changes.outputs.transport_core == 'true'
+        working-directory: services/transport-core
         run: bash scripts/smoke.sh
