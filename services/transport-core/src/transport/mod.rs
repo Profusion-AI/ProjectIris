@@ -6,7 +6,7 @@ use tokio::sync::{broadcast, RwLock};
 use tracing::{info, warn};
 
 use crate::{
-    framing::{now_ns, parse_control, read_frame, write_frame, Frame},
+    framing::{now_ns, parse_control_message, read_frame, write_frame, Frame},
     metrics::StreamMetrics,
     profile::LatencyProfile,
 };
@@ -16,6 +16,7 @@ pub struct RelayConfig {
     pub bind_addr: SocketAddr,
     pub cert_path: std::path::PathBuf,
     pub key_path: std::path::PathBuf,
+    pub required_control_token: Option<String>,
 }
 
 #[derive(Clone)]
@@ -23,6 +24,7 @@ pub struct ClientConnect {
     pub relay_addr: SocketAddr,
     pub server_name: String,
     pub ca_cert_path: std::path::PathBuf,
+    pub control_token: Option<String>,
 }
 
 #[derive(Default)]
@@ -35,14 +37,16 @@ pub async fn run_relay(config: RelayConfig) -> Result<()> {
     let server_config = load_server_config(&config.cert_path, &config.key_path)?;
     let endpoint = Endpoint::server(server_config, config.bind_addr)?;
     let state = Arc::new(RelayState::default());
+    let required_control_token = config.required_control_token.clone();
 
     info!("relay listening on {}", config.bind_addr);
     while let Some(incoming) = endpoint.accept().await {
         let state = state.clone();
+        let required_control_token = required_control_token.clone();
         tokio::spawn(async move {
             match incoming.await {
                 Ok(conn) => {
-                    if let Err(e) = handle_connection(conn, state).await {
+                    if let Err(e) = handle_connection(conn, state, required_control_token).await {
                         warn!(error = %e, "connection handling failed");
                     }
                 }
@@ -54,7 +58,11 @@ pub async fn run_relay(config: RelayConfig) -> Result<()> {
     Ok(())
 }
 
-async fn handle_connection(conn: Connection, state: Arc<RelayState>) -> Result<()> {
+async fn handle_connection(
+    conn: Connection,
+    state: Arc<RelayState>,
+    required_control_token: Option<String>,
+) -> Result<()> {
     info!(remote = %conn.remote_address(), "new connection");
     loop {
         let (mut send, mut recv) = match conn.accept_bi().await {
@@ -65,7 +73,19 @@ async fn handle_connection(conn: Connection, state: Arc<RelayState>) -> Result<(
         let control = read_frame(&mut recv)
             .await
             .context("missing or invalid control frame")?;
-        let (role, stream_id, profile) = parse_control(&control)?;
+        let control = parse_control_message(&control)?;
+        let role = control.role;
+        let stream_id = control.stream_id;
+        let profile = control.profile;
+        let presented_token = control.token;
+
+        if let Some(required) = required_control_token.as_deref() {
+            if presented_token.as_deref() != Some(required) {
+                warn!(stream_id, "control token rejected for incoming connection");
+                let _ = send.finish();
+                continue;
+            }
+        }
 
         match role {
             crate::ClientRole::Publisher => {
@@ -146,21 +166,42 @@ async fn handle_subscriber(
     state: &Arc<RelayState>,
 ) -> Result<()> {
     let mut buffered_started = false;
+    let mut local_frames_out = 0_u64;
+    let mut local_frames_dropped = 0_u64;
+    let mut local_latency_acc_ns = 0_u64;
+    let mut local_latency_samples = 0_u64;
 
     loop {
-        let frame = match rx.recv().await {
-            Ok(frame) => frame,
-            Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
-                warn!(stream_id, skipped, "subscriber lagged");
-                state.metrics.record_drop();
-                continue;
+        let frame = tokio::select! {
+            stopped = send.stopped() => {
+                match stopped {
+                    Ok(code) => info!(
+                        stream_id,
+                        stop_code = code.map(|v| v.into_inner()),
+                        "subscriber stopped by peer"
+                    ),
+                    Err(e) => warn!(stream_id, error = %e, "subscriber stop check failed"),
+                }
+                break;
             }
-            Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            recv_res = rx.recv() => {
+                match recv_res {
+                    Ok(frame) => frame,
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                        warn!(stream_id, skipped, "subscriber lagged");
+                        state.metrics.record_drops(skipped);
+                        local_frames_dropped = local_frames_dropped.saturating_add(skipped);
+                        continue;
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                }
+            }
         };
 
         let age_ms = (now_ns().saturating_sub(frame.timestamp_ns)) / 1_000_000;
         if profile == LatencyProfile::Realtime && age_ms > profile.max_staleness_ms() {
             state.metrics.record_drop();
+            local_frames_dropped = local_frames_dropped.saturating_add(1);
             continue;
         }
 
@@ -169,10 +210,16 @@ async fn handle_subscriber(
             tokio::time::sleep(Duration::from_millis(profile.playout_buffer_ms())).await;
         }
 
-        write_frame(&mut send, &frame).await?;
+        if let Err(e) = write_frame(&mut send, &frame).await {
+            warn!(stream_id, error = %e, "subscriber write failed");
+            break;
+        }
         state.metrics.record_out(frame.payload.len());
+        local_frames_out = local_frames_out.saturating_add(1);
         let latency_ns = now_ns().saturating_sub(frame.timestamp_ns);
         state.metrics.record_latency_ns(latency_ns);
+        local_latency_acc_ns = local_latency_acc_ns.saturating_add(latency_ns);
+        local_latency_samples = local_latency_samples.saturating_add(1);
     }
 
     let _ = send.finish();
@@ -184,6 +231,13 @@ async fn handle_subscriber(
         frames_out = snap.frames_out,
         frames_dropped = snap.frames_dropped,
         avg_latency_ms = snap.avg_latency_ms,
+        local_frames_out,
+        local_frames_dropped,
+        local_avg_latency_ms = if local_latency_samples == 0 {
+            0.0
+        } else {
+            local_latency_acc_ns as f64 / local_latency_samples as f64 / 1_000_000.0
+        },
         "subscriber complete"
     );
     Ok(())
@@ -196,7 +250,15 @@ pub async fn connect_publisher(
 ) -> Result<(Endpoint, Connection, SendStream)> {
     let (endpoint, conn) = connect(cfg).await?;
     let (mut send, _recv) = conn.open_bi().await?;
-    let control = Frame::control(stream_id, format!("PUB {stream_id} {}", profile.as_str()));
+    let mut command = format!("PUB {stream_id} {}", profile.as_str());
+    if let Some(token) = cfg.control_token.as_deref() {
+        if token.chars().any(char::is_whitespace) {
+            return Err(anyhow!("control token cannot contain whitespace"));
+        }
+        command.push_str(" token=");
+        command.push_str(token);
+    }
+    let control = Frame::control(stream_id, command);
     write_frame(&mut send, &control).await?;
     Ok((endpoint, conn, send))
 }
@@ -208,7 +270,15 @@ pub async fn connect_subscriber(
 ) -> Result<(Endpoint, Connection, RecvStream)> {
     let (endpoint, conn) = connect(cfg).await?;
     let (mut send, recv) = conn.open_bi().await?;
-    let control = Frame::control(stream_id, format!("SUB {stream_id} {}", profile.as_str()));
+    let mut command = format!("SUB {stream_id} {}", profile.as_str());
+    if let Some(token) = cfg.control_token.as_deref() {
+        if token.chars().any(char::is_whitespace) {
+            return Err(anyhow!("control token cannot contain whitespace"));
+        }
+        command.push_str(" token=");
+        command.push_str(token);
+    }
+    let control = Frame::control(stream_id, command);
     write_frame(&mut send, &control).await?;
     let _ = send.finish();
     Ok((endpoint, conn, recv))

@@ -4,6 +4,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use crate::{FLAG_CONTROL, PROTOCOL_VERSION};
 
 pub const HEADER_LEN: usize = 26;
+pub const MAX_PAYLOAD_LEN: usize = 1024 * 1024;
 
 #[derive(Debug, Clone)]
 pub struct Frame {
@@ -13,6 +14,14 @@ pub struct Frame {
     pub seq_no: u64,
     pub timestamp_ns: u64,
     pub payload: Vec<u8>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ControlMessage {
+    pub role: crate::ClientRole,
+    pub stream_id: u32,
+    pub profile: crate::profile::LatencyProfile,
+    pub token: Option<String>,
 }
 
 impl Frame {
@@ -78,6 +87,9 @@ pub async fn read_frame<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Frame> {
     let seq_no = u64::from_be_bytes(header[6..14].try_into()?);
     let timestamp_ns = u64::from_be_bytes(header[14..22].try_into()?);
     let payload_len = u32::from_be_bytes(header[22..26].try_into()?) as usize;
+    if payload_len > MAX_PAYLOAD_LEN {
+        bail!("payload too large: {payload_len} > {MAX_PAYLOAD_LEN}");
+    }
 
     let mut payload = vec![0u8; payload_len];
     reader.read_exact(&mut payload).await?;
@@ -95,6 +107,11 @@ pub async fn read_frame<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Frame> {
 pub fn parse_control(
     frame: &Frame,
 ) -> Result<(crate::ClientRole, u32, crate::profile::LatencyProfile)> {
+    let control = parse_control_message(frame)?;
+    Ok((control.role, control.stream_id, control.profile))
+}
+
+pub fn parse_control_message(frame: &Frame) -> Result<ControlMessage> {
     if !frame.is_control() {
         bail!("expected control frame")
     }
@@ -117,7 +134,27 @@ pub fn parse_control(
         .ok_or_else(|| anyhow!("missing profile"))?
         .parse()?;
 
-    Ok((role, stream_id, profile))
+    let mut token = None;
+    if let Some(part) = parts.next() {
+        let value = part
+            .strip_prefix("token=")
+            .ok_or_else(|| anyhow!("invalid control token segment"))?;
+        if value.is_empty() {
+            bail!("empty control token");
+        }
+        token = Some(value.to_string());
+    }
+
+    if parts.next().is_some() {
+        bail!("unexpected extra control frame segments");
+    }
+
+    Ok(ControlMessage {
+        role,
+        stream_id,
+        profile,
+        token,
+    })
 }
 
 pub fn now_ns() -> u64 {
@@ -145,5 +182,30 @@ mod tests {
         assert_eq!(parsed.seq_no, 2);
         assert_eq!(parsed.timestamp_ns, 12345);
         assert_eq!(parsed.payload, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn parse_control_with_token() {
+        let frame = Frame::control(10, "PUB 10 real-time token=signed-value");
+        let parsed = parse_control_message(&frame).expect("control parse");
+        assert_eq!(parsed.role, crate::ClientRole::Publisher);
+        assert_eq!(parsed.stream_id, 10);
+        assert_eq!(parsed.profile, crate::profile::LatencyProfile::Realtime);
+        assert_eq!(parsed.token.as_deref(), Some("signed-value"));
+    }
+
+    #[tokio::test]
+    async fn reject_oversized_payload() {
+        let mut buf = Vec::new();
+        let mut header = [0u8; HEADER_LEN];
+        header[0] = PROTOCOL_VERSION;
+        header[22..26].copy_from_slice(&((MAX_PAYLOAD_LEN + 1) as u32).to_be_bytes());
+        buf.extend_from_slice(&header);
+
+        let mut cursor = std::io::Cursor::new(buf);
+        let err = read_frame(&mut cursor)
+            .await
+            .expect_err("expected oversized payload");
+        assert!(err.to_string().contains("payload too large"));
     }
 }

@@ -1,6 +1,6 @@
 use std::{io::Write, path::PathBuf};
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use clap::Parser;
 use iris_transport_core::{
     framing::{now_ns, read_frame},
@@ -19,6 +19,9 @@ struct Args {
 
     #[arg(long, default_value = "certs/relay-cert.pem")]
     ca_cert: PathBuf,
+
+    #[arg(long)]
+    control_token: Option<String>,
 
     #[arg(long)]
     stream_id: u32,
@@ -43,6 +46,7 @@ async fn main() -> Result<()> {
             relay_addr: args.relay,
             server_name: args.server_name,
             ca_cert_path: args.ca_cert,
+            control_token: args.control_token,
         },
         args.stream_id,
         args.profile,
@@ -56,11 +60,15 @@ async fn main() -> Result<()> {
 
     let mut total = 0u64;
     let mut latency_acc_ms = 0f64;
+    let mut terminal_error = None;
 
     while total < args.max_frames {
         let frame = match read_frame(&mut recv).await {
             Ok(frame) => frame,
-            Err(_) => break,
+            Err(e) => {
+                terminal_error = Some(e);
+                break;
+            }
         };
 
         let latency_ms = (now_ns().saturating_sub(frame.timestamp_ns)) as f64 / 1_000_000.0;
@@ -70,12 +78,24 @@ async fn main() -> Result<()> {
         total += 1;
     }
 
+    if total == 0 {
+        if let Some(e) = terminal_error {
+            return Err(anyhow!(
+                "receiver stream closed before any frames were received: {e}"
+            ));
+        }
+    }
+
     if total > 0 {
         eprintln!(
             "received_frames={} avg_latency_ms={:.2}",
             total,
             latency_acc_ms / total as f64
         );
+    }
+
+    if let Some(e) = terminal_error {
+        eprintln!("stream closed after {} frame(s): {}", total, e);
     }
 
     Ok(())

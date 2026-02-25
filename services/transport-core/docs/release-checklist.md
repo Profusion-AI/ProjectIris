@@ -6,6 +6,8 @@
 - [ ] `cargo test --all-targets`
 - [ ] `bash scripts/smoke.sh`
 - [ ] Repro run captured with `bash scripts/benchmark.sh`
+  - includes `docs/evidence/<timestamp>/summary.json`
+  - reports QUIC/UDP transport metadata + real-time (200ms stale-drop) and buffered (10s playout) scenarios
 
 ## Release Notes Must Include
 - [ ] What changed.

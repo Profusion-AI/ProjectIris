@@ -22,6 +22,9 @@ struct Args {
     ca_cert: PathBuf,
 
     #[arg(long)]
+    control_token: Option<String>,
+
+    #[arg(long)]
     stream_id: u32,
 
     #[arg(long, default_value = "real-time")]
@@ -41,6 +44,12 @@ struct Args {
 
     #[arg(long, default_value_t = 8192)]
     chunk_size: usize,
+
+    #[arg(long, default_value_t = 0)]
+    stale_prefix_frames: u64,
+
+    #[arg(long, default_value_t = 0)]
+    stale_offset_ms: u64,
 }
 
 #[tokio::main]
@@ -73,6 +82,7 @@ async fn main() -> Result<()> {
             relay_addr: args.relay,
             server_name: args.server_name,
             ca_cert_path: args.ca_cert,
+            control_token: args.control_token,
         },
         args.stream_id,
         args.profile,
@@ -80,9 +90,14 @@ async fn main() -> Result<()> {
     .await?;
 
     let frame_gap = Duration::from_millis(1_000 / args.fps.max(1));
+    let stale_offset_ns = args.stale_offset_ms.saturating_mul(1_000_000);
 
     for (idx, payload) in payloads.into_iter().enumerate() {
-        let frame = Frame::data(args.stream_id, idx as u64, now_ns(), payload);
+        let mut ts = now_ns();
+        if (idx as u64) < args.stale_prefix_frames {
+            ts = ts.saturating_sub(stale_offset_ns);
+        }
+        let frame = Frame::data(args.stream_id, idx as u64, ts, payload);
         write_frame(&mut send, &frame).await?;
         tokio::time::sleep(frame_gap).await;
     }

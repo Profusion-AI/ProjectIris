@@ -29,6 +29,7 @@ async fn relay_smoke_realtime() {
         bind_addr: addr,
         cert_path: cert_path.clone(),
         key_path,
+        required_control_token: None,
     }));
 
     tokio::time::sleep(Duration::from_millis(120)).await;
@@ -37,6 +38,7 @@ async fn relay_smoke_realtime() {
         relay_addr: addr,
         server_name: "localhost".to_string(),
         ca_cert_path: cert_path,
+        control_token: None,
     };
 
     let (_sub_ep, _sub_conn, mut recv) = connect_subscriber(&connect, 7, LatencyProfile::Realtime)

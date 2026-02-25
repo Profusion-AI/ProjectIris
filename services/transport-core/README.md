@@ -48,8 +48,8 @@ cargo run --bin iris-send -- \
 ```
 
 ## Profiles
-- `real-time`: drops stale frames (>250ms) for lower latency.
-- `buffered`: adds initial playout buffer (~2000ms) for continuity.
+- `real-time`: drops stale frames (>200ms) for lower latency.
+- `buffered`: adds initial playout buffer (~10000ms) for continuity.
 
 ## CI validation
 
@@ -63,6 +63,20 @@ bash scripts/smoke.sh
 
 ## Evidence capture
 Use `scripts/benchmark.sh` to run local reproducible profile captures and save artifacts to `docs/evidence/`.
+Each run writes `summary.json` with QUIC/UDP and tunable-latency metrics for both profiles.
+
+## Optional control token
+Relay and clients can require a shared control token:
+
+```bash
+cd services/transport-core
+cargo run --bin iris-relay -- --auto-cert --required-control-token dev-token
+```
+
+```bash
+cd services/transport-core
+cargo run --bin iris-send -- --relay 127.0.0.1:7443 --stream-id 100 --control-token dev-token
+```
 
 ## v0.1.x TODOs
 - Webcam sender mode scaffolded for v0.2.0 requirement.
