@@ -18,7 +18,7 @@ impl LatencyProfile {
 
     pub fn max_staleness_ms(self) -> u64 {
         match self {
-            Self::Realtime => 250,
+            Self::Realtime => 200,
             Self::Buffered => 10_000,
         }
     }
@@ -26,7 +26,7 @@ impl LatencyProfile {
     pub fn playout_buffer_ms(self) -> u64 {
         match self {
             Self::Realtime => 0,
-            Self::Buffered => 2_000,
+            Self::Buffered => 10_000,
         }
     }
 }
@@ -40,5 +40,16 @@ impl FromStr for LatencyProfile {
             "buffered" | "buf" => Ok(Self::Buffered),
             _ => bail!("invalid profile {s}. use real-time or buffered"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::LatencyProfile;
+
+    #[test]
+    fn profile_thresholds_are_tunable_and_explicit() {
+        assert_eq!(LatencyProfile::Realtime.max_staleness_ms(), 200);
+        assert_eq!(LatencyProfile::Buffered.playout_buffer_ms(), 10_000);
     }
 }

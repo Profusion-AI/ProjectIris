@@ -7,3 +7,4 @@ Each run should include:
 - sender/receiver logs for `real-time`
 - sender/receiver logs for `buffered`
 - output binaries for sanity checks
+- `summary.json` with protocol (`quic/udp`), profile thresholds, and per-profile latency/throughput/drop metrics

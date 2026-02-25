@@ -44,3 +44,36 @@ jobs:
         if: steps.changes.outputs.transport_core == 'true'
         working-directory: services/transport-core
         run: bash scripts/smoke.sh
+
+  benchmark-evidence:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: changes
+        with:
+          filters: |
+            transport_core:
+              - 'services/transport-core/**'
+              - '.github/workflows/transport-core-ci.yml'
+      - name: policy-pass
+        if: steps.changes.outputs.transport_core != 'true'
+        run: echo "No transport-core changes; skipping benchmark evidence."
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.changes.outputs.transport_core == 'true'
+      - uses: Swatinem/rust-cache@v2
+        if: steps.changes.outputs.transport_core == 'true'
+      - name: benchmark-evidence
+        id: bench
+        if: steps.changes.outputs.transport_core == 'true'
+        working-directory: services/transport-core
+        env:
+          IRIS_BENCH_FAST: "1"
+        run: bash scripts/benchmark.sh
+      - name: upload-benchmark-artifacts
+        if: steps.changes.outputs.transport_core == 'true' && steps.bench.outputs.out_dir != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: transport-core-benchmark-${{ github.sha }}
+          path: ${{ steps.bench.outputs.out_dir }}

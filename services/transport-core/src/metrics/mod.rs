@@ -25,7 +25,11 @@ impl StreamMetrics {
     }
 
     pub fn record_drop(&self) {
-        self.frames_dropped.fetch_add(1, Ordering::Relaxed);
+        self.record_drops(1);
+    }
+
+    pub fn record_drops(&self, count: u64) {
+        self.frames_dropped.fetch_add(count, Ordering::Relaxed);
     }
 
     pub fn record_latency_ns(&self, ns: u64) {

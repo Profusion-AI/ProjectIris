@@ -7,7 +7,7 @@ use iris_transport_core::transport::{generate_self_signed_cert, run_relay, Relay
 #[derive(Parser, Debug)]
 #[command(name = "iris-relay", about = "Iris QUIC relay")]
 struct Args {
-    #[arg(long, default_value = "0.0.0.0:7443")]
+    #[arg(long, default_value = "127.0.0.1:7443")]
     bind: std::net::SocketAddr,
 
     #[arg(long, default_value = "certs/relay-cert.pem")]
@@ -18,6 +18,9 @@ struct Args {
 
     #[arg(long, default_value_t = false)]
     auto_cert: bool,
+
+    #[arg(long)]
+    required_control_token: Option<String>,
 }
 
 #[tokio::main]
@@ -38,6 +41,7 @@ async fn main() -> Result<()> {
         bind_addr: args.bind,
         cert_path: args.cert,
         key_path: args.key,
+        required_control_token: args.required_control_token,
     })
     .await
 }
