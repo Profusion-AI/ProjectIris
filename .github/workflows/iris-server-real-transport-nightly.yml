@@ -1,0 +1,36 @@
+name: iris-server-real-transport-nightly
+
+on:
+  schedule:
+    - cron: "30 4 * * *"
+  workflow_dispatch:
+
+jobs:
+  real-transport-orchestration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r services/iris-server/requirements.txt
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            services/transport-core -> services/transport-core/target
+
+      - name: Build transport binaries
+        run: cargo build --manifest-path services/transport-core/Cargo.toml --bins
+
+      - name: Real transport orchestration integration test
+        env:
+          IRIS_RUN_REAL_TRANSPORT_TEST: "1"
+        run: pytest -q tests/integration/test_iris_server_transport_real.py

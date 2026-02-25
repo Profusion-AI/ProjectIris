@@ -5,11 +5,17 @@ on:
     branches: [ main ]
     paths:
       - 'services/iris-server/**'
+      - 'tests/integration/**'
+      - 'tests/e2e/**'
+      - 'tests/helpers/**'
       - '.github/workflows/iris-server-ci.yml'
   push:
     branches: [ main ]
     paths:
       - 'services/iris-server/**'
+      - 'tests/integration/**'
+      - 'tests/e2e/**'
+      - 'tests/helpers/**'
       - '.github/workflows/iris-server-ci.yml'
 
 jobs:
@@ -22,8 +28,10 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install schema validation dependencies
-        run: python -m pip install --upgrade pip openapi-spec-validator pyyaml
+      - name: Install runtime and validation dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r services/iris-server/requirements.txt
 
       - name: Validate OpenAPI schema
         run: |
@@ -32,3 +40,9 @@ jobs:
 
       - name: Benchmark smoke
         run: bash services/iris-server/bench/smoke.sh
+
+      - name: Integration and e2e tests
+        run: |
+          pytest -q \
+            tests/integration/test_iris_server_transport.py \
+            tests/e2e/test_player_flow.py

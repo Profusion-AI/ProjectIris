@@ -1,9 +1,9 @@
 openapi: 3.1.0
 info:
-  title: iris-server Benchmark API
+  title: iris-server Bootstrap API
   version: 0.1.0
   description: |
-    Bootstrap API contract for iris-server benchmark and health endpoints.
+    Bootstrap API contract for iris-server benchmark, health, and player session endpoints.
 servers:
   - url: http://localhost:8080
 paths:
@@ -56,6 +56,75 @@ paths:
                 $ref: '#/components/schemas/BenchmarkRun'
         '404':
           description: Run not found
+  /player/sessions:
+    post:
+      operationId: createPlayerSession
+      summary: Bootstrap a player session and start transport orchestration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlayerSessionRequest'
+      responses:
+        '200':
+          description: Session bootstrap metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlayerSessionResponse'
+  /player/sessions/{session_id}:
+    get:
+      operationId: getPlayerSession
+      summary: Fetch player session metadata and status
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: X-Session-Token
+          in: header
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Player session metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlayerSessionStatus'
+        '401':
+          description: Missing or invalid session token
+        '404':
+          description: Session not found
+  /player/sessions/{session_id}/metrics:
+    get:
+      operationId: getPlayerSessionMetrics
+      summary: Read normalized metrics for a player session
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: X-Session-Token
+          in: header
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Session metrics payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlayerSessionMetrics'
+        '401':
+          description: Missing or invalid session token
+        '404':
+          description: Session not found
 components:
   schemas:
     HealthResponse:
@@ -145,4 +214,117 @@ components:
         git_sha:
           type: string
         artifact_path:
+          type: string
+    PlayerSessionRequest:
+      type: object
+      properties:
+        profile:
+          type: string
+          enum: [real-time, buffered]
+          default: real-time
+        relay_addr:
+          type: string
+          default: 127.0.0.1:7443
+        stream_id:
+          type: integer
+          minimum: 1
+          maximum: 4294967295
+          default: 777
+        frames:
+          type: integer
+          minimum: 1
+          maximum: 100000
+          default: 120
+        fps:
+          type: integer
+          minimum: 1
+          maximum: 240
+          default: 30
+        payload_size:
+          type: integer
+          minimum: 1
+          maximum: 4194304
+          default: 1024
+        timeout_ms:
+          type: integer
+          minimum: 500
+          maximum: 120000
+          default: 20000
+    PlayerSessionResponse:
+      type: object
+      required:
+        - session_id
+        - session_token
+        - relay_url
+        - stream_id
+        - profile
+        - metrics_url
+        - websocket_url
+        - correlation_id
+      properties:
+        session_id:
+          type: string
+        session_token:
+          type: string
+        relay_url:
+          type: string
+        stream_id:
+          type: integer
+        profile:
+          type: string
+          enum: [real-time, buffered]
+        metrics_url:
+          type: string
+        websocket_url:
+          type: string
+        correlation_id:
+          type: string
+    PlayerSessionStatus:
+      allOf:
+        - $ref: '#/components/schemas/PlayerSessionResponse'
+        - type: object
+          required: [status]
+          properties:
+            status:
+              type: string
+              enum: [starting, running, completed, failed, stopped]
+            error:
+              type: string
+    PlayerSessionMetrics:
+      type: object
+      required:
+        - session_id
+        - correlation_id
+        - profile
+        - status
+      properties:
+        session_id:
+          type: string
+        correlation_id:
+          type: string
+        profile:
+          type: string
+          enum: [real-time, buffered]
+        frames_sent:
+          type: integer
+          nullable: true
+        frames_received:
+          type: integer
+          nullable: true
+        frames_dropped:
+          type: integer
+          nullable: true
+        avg_latency_ms:
+          type: number
+          nullable: true
+        artifact_path:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [starting, running, completed, failed, stopped]
+        error:
+          type: string
+          nullable: true
+        metrics_url:
           type: string

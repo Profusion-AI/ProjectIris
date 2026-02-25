@@ -1,0 +1,44 @@
+name: player-web-ci
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'apps/player-web/**'
+      - 'tests/e2e/**'
+      - 'tests/helpers/**'
+      - 'services/iris-server/app/**'
+      - '.github/workflows/player-web-ci.yml'
+  push:
+    branches: [ main ]
+    paths:
+      - 'apps/player-web/**'
+      - 'tests/e2e/**'
+      - 'tests/helpers/**'
+      - 'services/iris-server/app/**'
+      - '.github/workflows/player-web-ci.yml'
+
+jobs:
+  typecheck-and-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: TypeScript type check
+        run: npx --yes -p typescript@5.7.3 tsc --project apps/player-web/tsconfig.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python runtime dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r services/iris-server/requirements.txt
+
+      - name: Player e2e smoke
+        run: pytest -q tests/e2e/test_player_flow.py
