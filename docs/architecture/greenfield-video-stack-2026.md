@@ -135,3 +135,46 @@ Based on 2024–2025 YouTube metrics, the necessity for this architectural conve
 
 These figures underscore why innovations like Neural Reconstruction and MoQ are not merely optimizations but requirements for economic survival in the 2026 media landscape.
 
+
+--------------------------------------------------------------------------------
+
+
+7. Delivery Governance: CI/CD as Business Risk Control (Status as of 2026-02-25)
+
+The stack strategy above only creates business value if delivery quality is enforced continuously. For ProjectIris, GitHub Actions and branch protection are operational controls for business risk, not just developer tooling.
+
+7.1 Why This Matters Commercially
+
+* Revenue Protection: failing checks caught before merge avoid customer-facing regressions and downtime risk.
+* Cost Control: defects found in CI are materially cheaper than post-release incident recovery.
+* Throughput With Confidence: a strict merge gate increases release predictability for a small team.
+* Investor and Partner Credibility: an auditable pipeline (who changed what, what passed, what failed) demonstrates execution discipline.
+
+7.2 `iris-transport-core` Progress and Business Signal
+
+As of 2026-02-25, the transport milestone moved from design intent to enforceable delivery baseline:
+
+* Transport PoC scaffold exists in `services/transport-core/` (relay, sender/receiver CLIs, framing, profiles, smoke test, scripts, docs).
+* GitHub Actions workflow `transport-core-ci` is active and has a successful run on `main` for commit `21958e4`.
+* `main` branch protection requires the `test` status check, one PR approval, stale review dismissal, conversation resolution, linear history, and disallows force-push/delete.
+
+Business interpretation: the transport line is now governed by measurable release controls, reducing operational risk as early traction and revenue begin.
+
+7.3 Remaining Risk Before Declaring Transport "Hardened"
+
+* Benchmark evidence capture must be sustained and retained per release checklist.
+* Security hardening remains required for authn/authz and abuse resistance in relay control paths.
+* Protocol hardening (input bounds, interoperability behavior) should continue before production-grade claims.
+
+7.4 Readiness Decision for `iris-server` (Week 3)
+
+Decision: Conditional GO for `iris-server` implementation now.
+
+Rationale:
+* Positive: transport milestone has CI enforcement and branch governance in place.
+* Constraint: transport remains PoC-grade in several hardening areas; avoid claiming production readiness.
+
+Execution rule for next phase:
+* Proceed with `iris-server` prototype scope (simple HTTP endpoint + matrix-heavy benchmark path).
+* Keep transport hardening tasks active in parallel as explicit backlog items, not implicit future work.
+* Gate any cross-service production-critical integration on benchmark evidence and documented residual risks.
