@@ -42,6 +42,10 @@ As components mature, add component-local commands in each folder README (for ex
   - conversation resolution before merge.
 - Do not bypass failed checks for production-critical scope without explicit, documented approval and a follow-up plan in `docs/runbooks/known-issues.md`.
 - For transport/performance-affecting work, preserve reproducible evidence capture (tests, smoke, benchmark artifacts) so release decisions are evidence-based.
+- Docs fast-lane uses a controlled nightly sync:
+  - push docs-only work to `docs-staging`,
+  - GitHub Actions workflow `docs-daily-sync` runs at `22:00 UTC`,
+  - the workflow creates/updates a PR from `docs-staging` to `main` only when the diff is limited to `docs/**`.
 
 ## Commit & Pull Request Guidelines
 - Follow conventional-style commits (`docs:`, `chore:`, `feat:`, `fix:`).

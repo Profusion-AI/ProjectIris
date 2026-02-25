@@ -1,0 +1,94 @@
+name: docs-daily-sync
+
+on:
+  schedule:
+    - cron: '0 22 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: fetch-branches
+        run: git fetch origin main docs-staging || true
+
+      - name: check-docs-staging
+        id: branch
+        run: |
+          if git show-ref --verify --quiet refs/remotes/origin/docs-staging; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: skip-no-docs-branch
+        if: steps.branch.outputs.exists != 'true'
+        run: echo "docs-staging branch not found; nothing to sync."
+
+      - name: scan-diff
+        if: steps.branch.outputs.exists == 'true'
+        id: diff
+        run: |
+          set -euo pipefail
+          CHANGED="$(git diff --name-only origin/main..origin/docs-staging || true)"
+          if [[ -z "${CHANGED}" ]]; then
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          NON_DOCS="$(echo "${CHANGED}" | grep -Ev '^docs/' || true)"
+          if [[ -n "${NON_DOCS}" ]]; then
+            echo "non_docs=true" >> "$GITHUB_OUTPUT"
+            printf '%s\n' "${NON_DOCS}" > /tmp/non_docs.txt
+          else
+            echo "non_docs=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          echo "has_changes=true" >> "$GITHUB_OUTPUT"
+
+      - name: skip-no-diff
+        if: steps.diff.outputs.has_changes != 'true'
+        run: echo "No docs changes to sync."
+
+      - name: block-non-doc-changes
+        if: steps.diff.outputs.has_changes == 'true' && steps.diff.outputs.non_docs == 'true'
+        run: |
+          echo "docs-staging includes non-doc changes; nightly sync only allows docs/**."
+          cat /tmp/non_docs.txt
+          exit 1
+
+      - name: create-or-update-pr
+        if: steps.diff.outputs.has_changes == 'true' && steps.diff.outputs.non_docs == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          PR_NUMBER="$(gh pr list --base main --head docs-staging --state open --json number --jq '.[0].number')"
+          if [[ -n "${PR_NUMBER}" ]]; then
+            echo "Open PR #${PR_NUMBER} already exists."
+          else
+            gh pr create \
+              --base main \
+              --head docs-staging \
+              --title "docs(sync): daily docs sync $(date -u +%Y-%m-%d)" \
+              --body "Automated nightly docs sync from \`docs-staging\` to \`main\` at 22:00 UTC. This PR includes only \`docs/**\` changes."
+          fi
+
+      - name: enable-auto-merge
+        if: steps.diff.outputs.has_changes == 'true' && steps.diff.outputs.non_docs == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          PR_NUMBER="$(gh pr list --base main --head docs-staging --state open --json number --jq '.[0].number')"
+          if [[ -n "${PR_NUMBER}" ]]; then
+            gh pr merge "${PR_NUMBER}" --auto --squash || true
+          fi
