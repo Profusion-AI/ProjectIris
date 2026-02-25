@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Iris Player Web MVP</title>
+    <style>
+      :root {
+        --bg: #f3efe6;
+        --ink: #11131a;
+        --panel: #fffdf9;
+        --accent: #d9662b;
+        --accent-soft: #ffe0cf;
+        --muted: #5f6572;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Space Grotesk", "Avenir Next", "Segoe UI", sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at 20% 10%, #fdd8b2 0, transparent 30%),
+          radial-gradient(circle at 85% 90%, #bfd8ff 0, transparent 35%),
+          var(--bg);
+      }
+
+      main {
+        max-width: 980px;
+        margin: 0 auto;
+        padding: 2rem 1rem 3rem;
+        display: grid;
+        gap: 1rem;
+      }
+
+      .hero {
+        background: linear-gradient(120deg, var(--accent-soft), #fff9f3);
+        border: 1px solid #f0cdb7;
+        border-radius: 14px;
+        padding: 1.25rem;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(1.5rem, 2.8vw, 2.2rem);
+      }
+
+      .grid {
+        display: grid;
+        gap: 1rem;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      }
+
+      .card {
+        background: var(--panel);
+        border: 1px solid #e7dfd5;
+        border-radius: 12px;
+        padding: 1rem;
+      }
+
+      form {
+        display: flex;
+        gap: 0.5rem;
+        align-items: end;
+      }
+
+      label {
+        display: grid;
+        gap: 0.3rem;
+        font-size: 0.9rem;
+      }
+
+      select,
+      button {
+        border-radius: 8px;
+        border: 1px solid #c9b7a8;
+        font: inherit;
+        padding: 0.55rem 0.75rem;
+      }
+
+      button {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #fff;
+        cursor: pointer;
+      }
+
+      button:hover {
+        filter: brightness(1.06);
+      }
+
+      dl {
+        margin: 0;
+        display: grid;
+        grid-template-columns: max-content 1fr;
+        gap: 0.4rem 0.6rem;
+      }
+
+      dt {
+        color: var(--muted);
+      }
+
+      dd {
+        margin: 0;
+        font-variant-numeric: tabular-nums;
+        word-break: break-word;
+      }
+
+      canvas {
+        width: 100%;
+        height: auto;
+        border-radius: 10px;
+        border: 1px solid #ddd0c2;
+        background: #141b2d;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="hero">
+        <h1>Iris Player Web MVP</h1>
+        <p>
+          Session bootstrap + WebSocket frame bridge + QoS telemetry.
+        </p>
+      </section>
+
+      <section class="grid">
+        <div class="card">
+          <h2>Session Control</h2>
+          <form id="session-form">
+            <label>
+              Profile
+              <select id="profile" name="profile">
+                <option value="real-time">real-time</option>
+                <option value="buffered">buffered</option>
+              </select>
+            </label>
+            <button type="submit">Start Session</button>
+          </form>
+        </div>
+
+        <div class="card">
+          <h2>QoS Telemetry</h2>
+          <dl>
+            <dt>Status</dt>
+            <dd id="session-status">idle</dd>
+            <dt>Correlation</dt>
+            <dd id="corr-id">-</dd>
+            <dt>Frames Received</dt>
+            <dd id="frames-received">-</dd>
+            <dt>Drops</dt>
+            <dd id="frames-dropped">-</dd>
+            <dt>Avg Latency</dt>
+            <dd id="avg-latency">-</dd>
+          </dl>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Render Surface</h2>
+        <canvas id="frame-canvas" width="640" height="360"></canvas>
+      </section>
+    </main>
+
+    <script src="./src/client.js" type="module"></script>
+  </body>
+</html>

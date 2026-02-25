@@ -49,3 +49,20 @@ Goal: prove social-state scalability and linear behavior under load.
   - keep transport hardening backlog explicit and tracked,
   - maintain green CI on `main`,
   - document residual risk and rollback notes for production-critical changes.
+
+## Sprint MVP Execution Plan (2026-02-25)
+- Runtime decision: `Python FastAPI` is approved as a temporary strawman for sprint delivery speed.
+- Delivery slices:
+  1. P0: CI baseline stabilization and benchmark evidence resiliency.
+  2. P1: `iris-server` runtime + internal transport orchestration bridge.
+  3. P2: `player-web` vertical slice + integration/e2e evidence gates.
+- Non-negotiable boundaries for strawman phase:
+  - artifact-backed persistence only (`docs/evidence/**`), no DB,
+  - internal control endpoints require signed bearer token,
+  - allowlist-only subprocess orchestration (`iris-relay`, `iris-send`, `iris-recv`),
+  - correlation ID and artifact path must propagate end-to-end.
+
+### Mojo Cutover Triggers
+- Trigger 1: move `BenchmarkBackend` from Python when MLIR-target execution is required and Python serialization overhead blocks benchmark progression.
+- Trigger 2: move session-control runtime from FastAPI when concurrency control degrades at sustained >400 session-control requests per core.
+- Trigger 3: backend cutover may proceed only with API contract parity, unchanged evidence schema, and side-by-side benchmark publication.

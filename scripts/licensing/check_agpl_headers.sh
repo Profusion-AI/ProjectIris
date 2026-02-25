@@ -4,6 +4,33 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "${ROOT_DIR}"
 
+resolve_push_before() {
+  if [[ -n "${GITHUB_EVENT_BEFORE:-}" ]]; then
+    printf '%s\n' "${GITHUB_EVENT_BEFORE}"
+    return
+  fi
+
+  if [[ -n "${GITHUB_EVENT_PATH:-}" && -f "${GITHUB_EVENT_PATH}" ]] && command -v python3 >/dev/null 2>&1; then
+    python3 - "${GITHUB_EVENT_PATH}" <<'PY'
+import json
+import sys
+
+try:
+    with open(sys.argv[1], encoding="utf-8") as file:
+        payload = json.load(file)
+except Exception:
+    print("")
+    raise SystemExit(0)
+
+before = payload.get("before", "")
+print(before if isinstance(before, str) else "")
+PY
+    return
+  fi
+
+  printf '\n'
+}
+
 resolve_range() {
   local base="${1:-}"
   local head="${2:-}"
@@ -23,14 +50,26 @@ resolve_range() {
       printf 'origin/%s...%s\n' "${GITHUB_BASE_REF}" "${GITHUB_SHA:-HEAD}"
       ;;
     push)
-      if [[ -z "${GITHUB_EVENT_BEFORE:-}" ]]; then
-        echo "missing GITHUB_EVENT_BEFORE for push event" >&2
+      local resolved_head before_sha
+      if ! resolved_head="$(git rev-parse "${GITHUB_SHA:-HEAD}" 2>/dev/null)"; then
+        echo "failed to resolve push head sha from GITHUB_SHA/HEAD" >&2
         exit 2
       fi
-      if [[ "${GITHUB_EVENT_BEFORE}" =~ ^0+$ ]]; then
-        printf '%s\n' "${GITHUB_SHA:-HEAD}"
+
+      before_sha="$(resolve_push_before)"
+      if [[ -n "${before_sha}" ]]; then
+        if [[ "${before_sha}" =~ ^0+$ ]]; then
+          printf '%s\n' "${resolved_head}"
+        else
+          printf '%s...%s\n' "${before_sha}" "${resolved_head}"
+        fi
+        return
+      fi
+
+      if git rev-parse --verify --quiet "${resolved_head}^" >/dev/null; then
+        printf '%s...%s\n' "$(git rev-parse "${resolved_head}^")" "${resolved_head}"
       else
-        printf '%s...%s\n' "${GITHUB_EVENT_BEFORE}" "${GITHUB_SHA:-HEAD}"
+        printf '%s\n' "${resolved_head}"
       fi
       ;;
     *)

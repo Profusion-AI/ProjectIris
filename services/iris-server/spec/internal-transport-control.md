@@ -5,6 +5,7 @@ through a process boundary during bootstrap.
 
 ## Security
 - Require `Authorization: Bearer <signed-internal-token>`.
+- Signed token format for bootstrap: `v1.<payload_b64url>.<hmac_sha256_sig_b64url>`.
 - Reject unsigned or malformed tokens.
 - Default bind for internal control listener: `127.0.0.1`.
 - Command execution is allowlist-only: `iris-relay`, `iris-send`, `iris-recv`.
@@ -25,6 +26,7 @@ through a process boundary during bootstrap.
   - `session_id`
   - `started_at_utc`
   - `correlation_id`
+  - implied `artifact_path` namespace rooted under `docs/evidence/transport-sessions/<session_id>/`
 
 ### `POST /internal/transport/session/stop`
 - Purpose: stop active transport run.

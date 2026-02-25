@@ -1,0 +1,148 @@
+const form = document.querySelector("#session-form");
+const profileSelect = document.querySelector("#profile");
+const statusEl = document.querySelector("#session-status");
+const correlationEl = document.querySelector("#corr-id");
+const framesEl = document.querySelector("#frames-received");
+const dropsEl = document.querySelector("#frames-dropped");
+const latencyEl = document.querySelector("#avg-latency");
+const canvas = document.querySelector("#frame-canvas");
+
+if (!form || !profileSelect || !statusEl || !correlationEl || !framesEl || !dropsEl || !latencyEl || !canvas) {
+  throw new Error("player UI is missing required elements");
+}
+
+const ctx = canvas.getContext("2d");
+if (!ctx) {
+  throw new Error("canvas 2d context unavailable");
+}
+
+let metricsPoll;
+let socket;
+
+function renderFrame(payloadB64) {
+  const raw = atob(payloadB64);
+  const width = canvas.width;
+  const height = canvas.height;
+  const image = ctx.createImageData(width, height);
+
+  for (let i = 0; i < width * height; i += 1) {
+    const base = i * 4;
+    const a = raw.charCodeAt(i % raw.length);
+    const b = raw.charCodeAt((i + 17) % raw.length);
+    const c = raw.charCodeAt((i + 43) % raw.length);
+    image.data[base] = a;
+    image.data[base + 1] = b;
+    image.data[base + 2] = c;
+    image.data[base + 3] = 255;
+  }
+
+  ctx.putImageData(image, 0, 0);
+}
+
+function resetSessionState() {
+  if (metricsPoll !== undefined) {
+    window.clearInterval(metricsPoll);
+    metricsPoll = undefined;
+  }
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    socket.close();
+  }
+  socket = undefined;
+}
+
+async function pollMetrics(metricsPath, sessionToken) {
+  const response = await fetch(metricsPath, {
+    headers: {
+      "X-Session-Token": sessionToken,
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`metrics request failed: ${response.status}`);
+  }
+
+  const payload = await response.json();
+  statusEl.textContent = payload.status;
+  correlationEl.textContent = payload.correlation_id;
+  framesEl.textContent = payload.frames_received === null ? "-" : String(payload.frames_received);
+  dropsEl.textContent = payload.frames_dropped === null ? "-" : String(payload.frames_dropped);
+  latencyEl.textContent = payload.avg_latency_ms === null ? "-" : `${payload.avg_latency_ms.toFixed(2)} ms`;
+}
+
+function openFrameSocket(websocketPath, sessionToken) {
+  const scheme = window.location.protocol === "https:" ? "wss" : "ws";
+  socket = new WebSocket(`${scheme}://${window.location.host}${websocketPath}?session_token=${encodeURIComponent(sessionToken)}`);
+
+  socket.onmessage = (event) => {
+    const payload = JSON.parse(event.data);
+    if (payload.type === "frame" && payload.payload_b64) {
+      renderFrame(payload.payload_b64);
+      return;
+    }
+    if (payload.type === "error") {
+      statusEl.textContent = `error: ${payload.detail ?? "session stream failed"}`;
+      return;
+    }
+    if (payload.type === "eos") {
+      statusEl.textContent = "completed";
+    }
+  };
+
+  socket.onerror = () => {
+    statusEl.textContent = "stream-error";
+  };
+}
+
+async function createSession(profile) {
+  const response = await fetch("/player/sessions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      profile,
+      relay_addr: "127.0.0.1:7443",
+      stream_id: profile === "real-time" ? 777 : 778,
+      frames: profile === "real-time" ? 120 : 60,
+      fps: 30,
+      payload_size: 1024,
+      timeout_ms: 20000,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`create session failed: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+form.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  resetSessionState();
+
+  statusEl.textContent = "starting";
+  correlationEl.textContent = "-";
+  framesEl.textContent = "-";
+  dropsEl.textContent = "-";
+  latencyEl.textContent = "-";
+
+  try {
+    const session = await createSession(profileSelect.value);
+    statusEl.textContent = "running";
+    correlationEl.textContent = session.correlation_id;
+
+    await pollMetrics(session.metrics_url, session.session_token);
+    metricsPoll = window.setInterval(async () => {
+      try {
+        await pollMetrics(session.metrics_url, session.session_token);
+      } catch {
+        statusEl.textContent = "metrics-error";
+      }
+    }, 1000);
+
+    openFrameSocket(session.websocket_url, session.session_token);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "unknown error";
+    statusEl.textContent = `error: ${message}`;
+  }
+});

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
@@ -7,11 +7,92 @@ cd "$ROOT_DIR"
 OUT_DIR="${ROOT_DIR}/docs/evidence/$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$OUT_DIR"
 
+if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+  echo "out_dir=${OUT_DIR}" >> "${GITHUB_OUTPUT}"
+fi
+
 PORT="${PORT:-7445}"
 RELAY_ADDR="127.0.0.1:${PORT}"
 FPS="${FPS:-30}"
 PAYLOAD_SIZE="${PAYLOAD_SIZE:-1024}"
 CONTROL_TOKEN="${CONTROL_TOKEN:-}"
+RELAY_STARTUP_TIMEOUT_SEC="${RELAY_STARTUP_TIMEOUT_SEC:-25}"
+RECV_STARTUP_DELAY_SEC="${RECV_STARTUP_DELAY_SEC:-0.4}"
+
+RELAY_PID=""
+RECV_PID=""
+CURRENT_PROFILE=""
+
+cleanup() {
+  if [[ -n "${RECV_PID}" ]]; then
+    kill "${RECV_PID}" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "${RELAY_PID}" ]]; then
+    kill "${RELAY_PID}" >/dev/null 2>&1 || true
+  fi
+}
+
+print_log_tail() {
+  local label="$1"
+  local file="$2"
+
+  if [[ ! -f "${file}" ]]; then
+    return
+  fi
+
+  echo "----- ${label} (tail -n 80) -----" >&2
+  tail -n 80 "${file}" >&2 || true
+}
+
+on_error() {
+  local exit_code=$?
+  set +e
+
+  echo "benchmark failed (exit code=${exit_code})" >&2
+  echo "artifact directory: ${OUT_DIR}" >&2
+  if [[ -n "${CURRENT_PROFILE}" ]]; then
+    echo "active profile: ${CURRENT_PROFILE}" >&2
+  fi
+
+  print_log_tail "relay.log" "${OUT_DIR}/relay.log"
+  print_log_tail "real-time-send.log" "${OUT_DIR}/real-time-send.log"
+  print_log_tail "real-time-recv.log" "${OUT_DIR}/real-time-recv.log"
+  print_log_tail "buffered-send.log" "${OUT_DIR}/buffered-send.log"
+  print_log_tail "buffered-recv.log" "${OUT_DIR}/buffered-recv.log"
+
+  exit "${exit_code}"
+}
+
+wait_for_relay_ready() {
+  local started_at now
+  started_at="$(date +%s)"
+
+  while true; do
+    if command -v rg >/dev/null 2>&1; then
+      if [[ -f "${OUT_DIR}/relay.log" ]] && rg -q 'relay listening on' "${OUT_DIR}/relay.log"; then
+        return 0
+      fi
+    elif [[ -f "${OUT_DIR}/relay.log" ]] && grep -Eq 'relay listening on' "${OUT_DIR}/relay.log"; then
+      return 0
+    fi
+
+    if ! kill -0 "${RELAY_PID}" >/dev/null 2>&1; then
+      echo "benchmark failed: relay exited before reporting readiness" >&2
+      return 1
+    fi
+
+    now="$(date +%s)"
+    if (( now - started_at >= RELAY_STARTUP_TIMEOUT_SEC )); then
+      echo "benchmark failed: relay did not report readiness within ${RELAY_STARTUP_TIMEOUT_SEC}s" >&2
+      return 1
+    fi
+
+    sleep 0.1
+  done
+}
+
+trap cleanup EXIT
+trap on_error ERR
 
 if [[ "${IRIS_BENCH_FAST:-0}" == "1" ]]; then
   : "${RT_TOTAL_FRAMES:=90}"
@@ -39,8 +120,7 @@ fi
 
 cargo run --quiet --bin iris-relay -- "${relay_args[@]}" >"${OUT_DIR}/relay.log" 2>&1 &
 RELAY_PID=$!
-trap 'kill ${RELAY_PID} >/dev/null 2>&1 || true' EXIT
-sleep 1
+wait_for_relay_ready
 
 echo "profile,stream_id,frames_sent,frames_target,frames_received,frames_dropped,drop_metric_source,avg_latency_ms,duration_ms,throughput_mbps,max_staleness_ms,playout_buffer_ms,stale_prefix_frames,stale_offset_ms" > "${OUT_DIR}/profiles.csv"
 
@@ -63,6 +143,7 @@ run_profile() {
   local stale_offset_ms="$6"
   local max_staleness_ms="$7"
   local playout_buffer_ms="$8"
+  CURRENT_PROFILE="${profile}"
 
   recv_args=(
     --relay "${RELAY_ADDR}"
@@ -92,11 +173,13 @@ run_profile() {
   cargo run --quiet --bin iris-recv -- "${recv_args[@]}" >"${OUT_DIR}/${profile}-recv.log" 2>&1 &
   RECV_PID=$!
 
-  sleep 0.4
+  sleep "${RECV_STARTUP_DELAY_SEC}"
 
   cargo run --quiet --bin iris-send -- "${send_args[@]}" >"${OUT_DIR}/${profile}-send.log" 2>&1
 
   wait ${RECV_PID}
+  RECV_PID=""
+  CURRENT_PROFILE=""
   local end_ns duration_ms
   end_ns="$(date +%s%N)"
   duration_ms="$(( (end_ns - start_ns) / 1000000 ))"
@@ -166,9 +249,5 @@ summary = {
 
 (out_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\\n", encoding="utf-8")
 PY
-
-if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
-  echo "out_dir=${OUT_DIR}" >> "${GITHUB_OUTPUT}"
-fi
 
 echo "benchmark artifacts in ${OUT_DIR}"
