@@ -33,7 +33,7 @@ Goal: prove social-state scalability and linear behavior under load.
 - Completed:
   - Rust transport PoC scaffold and CLI flows added under `services/transport-core/`.
   - GitHub Actions workflow `transport-core-ci` is active and passing on `main`.
-  - `main` protection now requires CI status check `test` plus PR review controls.
+  - `main` protection now requires CI status checks `repo-gate` and `test` plus PR review controls.
 - Remaining for transport hardening:
   - benchmark evidence discipline across releases,
   - authn/authz and abuse-resistance hardening,
