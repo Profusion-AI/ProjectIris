@@ -28,6 +28,9 @@ jobs:
         if: steps.changes.outputs.transport_core == 'true'
       - uses: Swatinem/rust-cache@v2
         if: steps.changes.outputs.transport_core == 'true'
+        with:
+          workspaces: |
+            services/transport-core -> services/transport-core/target
       - name: fmt
         if: steps.changes.outputs.transport_core == 'true'
         working-directory: services/transport-core
@@ -64,6 +67,9 @@ jobs:
         if: steps.changes.outputs.transport_core == 'true'
       - uses: Swatinem/rust-cache@v2
         if: steps.changes.outputs.transport_core == 'true'
+        with:
+          workspaces: |
+            services/transport-core -> services/transport-core/target
       - name: benchmark-evidence
         id: bench
         if: steps.changes.outputs.transport_core == 'true'
@@ -71,9 +77,14 @@ jobs:
         env:
           IRIS_BENCH_FAST: "1"
         run: bash scripts/benchmark.sh
+      - name: benchmark-artifact-debug
+        if: always() && steps.changes.outputs.transport_core == 'true'
+        run: |
+          echo "benchmark output dir: ${{ steps.bench.outputs.out_dir }}"
       - name: upload-benchmark-artifacts
-        if: steps.changes.outputs.transport_core == 'true' && steps.bench.outputs.out_dir != ''
+        if: always() && steps.changes.outputs.transport_core == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: transport-core-benchmark-${{ github.sha }}
-          path: ${{ steps.bench.outputs.out_dir }}
+          path: ${{ steps.bench.outputs.out_dir != '' && steps.bench.outputs.out_dir || 'services/transport-core/docs/evidence' }}
+          if-no-files-found: warn
