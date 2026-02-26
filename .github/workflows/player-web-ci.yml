@@ -10,7 +10,8 @@ on:
       - 'services/iris-server/app/**'
       - '.github/workflows/player-web-ci.yml'
   push:
-    branches: [ main ]
+    branches:
+      - '**'
     paths:
       - 'apps/player-web/**'
       - 'tests/e2e/**'
