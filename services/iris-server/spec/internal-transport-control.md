@@ -5,7 +5,12 @@ through a process boundary during bootstrap.
 
 ## Security
 - Require `Authorization: Bearer <signed-internal-token>`.
-- Signed token format for bootstrap: `v1.<payload_b64url>.<hmac_sha256_sig_b64url>`.
+- Signed token formats for bootstrap:
+  - `v1.<payload_b64url>.<hmac_sha256_sig_b64url>` (backward-compatible)
+  - `v2.<payload_b64url_with_kid>.<hmac_sha256_sig_b64url>` (rotation-ready)
+- Key rotation controls:
+  - `IRIS_INTERNAL_CONTROL_ACTIVE_KID`
+  - `IRIS_INTERNAL_CONTROL_KEYS_JSON` (`kid -> secret` map)
 - Reject unsigned or malformed tokens.
 - Default bind for internal control listener: `127.0.0.1`.
 - Command execution is allowlist-only: `iris-relay`, `iris-send`, `iris-recv`.

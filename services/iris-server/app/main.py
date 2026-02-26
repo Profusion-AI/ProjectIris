@@ -5,10 +5,12 @@ from __future__ import annotations
 
 import asyncio
 import base64
+from collections import Counter
 from contextlib import asynccontextmanager
 import hashlib
 import hmac
 import json
+import logging
 import os
 import random
 import re
@@ -17,12 +19,12 @@ import subprocess
 import threading
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Header, HTTPException, Response, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -33,6 +35,16 @@ RE_RELAY_READY = re.compile(r"relay listening on")
 RE_RECEIVED_FRAMES = re.compile(r"received_frames=(\d+)")
 RE_AVG_LATENCY = re.compile(r"avg_latency_ms=([0-9]+(?:\.[0-9]+)?)")
 RE_DROPPED_FRAMES = re.compile(r"local_frames_dropped=(\d+)")
+
+TERMINAL_STATUSES = {"completed", "failed", "stopped"}
+ACTIVE_STATUSES = {"starting", "running"}
+
+LOGGER = logging.getLogger("iris_server")
+if not LOGGER.handlers:
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(logging.Formatter("%(message)s"))
+    LOGGER.addHandler(_handler)
+LOGGER.setLevel(logging.INFO)
 
 
 class MatmulRequest(BaseModel):
@@ -68,16 +80,25 @@ class PlayerSessionRequest(BaseModel):
     timeout_ms: int = Field(default=20_000, ge=500, le=120_000)
 
 
+class RevokePlayerSessionRequest(BaseModel):
+    reason: str = Field(default="manual", min_length=1, max_length=256)
+
+
 @dataclass(slots=True)
 class AppSettings:
     evidence_root: Path
     transport_manifest: Path
     transport_bin_dir: Path | None
     internal_control_secret: str
+    internal_control_active_kid: str
+    internal_control_keys: dict[str, str]
     default_bench_backend: str = "python-baseline"
     relay_startup_timeout_sec: int = 25
     recv_startup_delay_sec: float = 0.4
     server_version: str = "0.1.0"
+    player_session_ttl_seconds: int = 3600
+    max_active_sessions: int = 32
+    max_active_subprocesses: int = 96
 
 
 @dataclass(slots=True)
@@ -102,6 +123,7 @@ class SessionRecord:
     avg_latency_ms: float | None = None
     artifact_path: str | None = None
     drop_metric_source: str = "relay_local_counter"
+    reserved_subprocess_slots: int = 0
     relay_proc: subprocess.Popen[str] | None = None
     recv_proc: subprocess.Popen[str] | None = None
     send_proc: subprocess.Popen[str] | None = None
@@ -118,24 +140,132 @@ class PlayerSessionRecord:
     metrics_url: str
     websocket_url: str
     created_at_utc: str
+    expires_at_utc: str
+    revoked_at_utc: str | None = None
+
+
+@dataclass(slots=True)
+class RuntimeMetrics:
+    _lock: threading.Lock = field(default_factory=threading.Lock)
+    _counters: Counter[str] = field(default_factory=Counter)
+
+    def inc(self, name: str, value: int = 1) -> None:
+        with self._lock:
+            self._counters[name] += value
+
+    def snapshot(self) -> dict[str, int]:
+        with self._lock:
+            return dict(self._counters)
+
+
+class SessionCapacityError(RuntimeError):
+    """Raised when session or subprocess capacity limits are exceeded."""
 
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _utc_after(seconds: int) -> str:
+    return datetime.fromtimestamp(int(time.time()) + seconds, tz=timezone.utc).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
+
+
+def _parse_utc(utc_value: str) -> datetime:
+    return datetime.strptime(utc_value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+
+
+def _log_event(level: str, event: str, **fields: Any) -> None:
+    payload = {"timestamp_utc": _utc_now(), "event": event, **fields}
+    message = json.dumps(payload, sort_keys=True)
+    # Pytest/teardown may close stderr while worker threads are still active.
+    for handler in list(LOGGER.handlers):
+        stream = getattr(handler, "stream", None)
+        if stream is not None and getattr(stream, "closed", False):
+            LOGGER.removeHandler(handler)
+    if not LOGGER.handlers:
+        return
+    try:
+        if level == "warning":
+            LOGGER.warning(message)
+        elif level == "error":
+            LOGGER.error(message)
+        else:
+            LOGGER.info(message)
+    except ValueError:
+        # Can occur during interpreter teardown if background threads log late.
+        pass
+
+
+def _env_int(name: str, default: int, minimum: int) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        parsed = int(raw)
+    except ValueError:
+        return default
+    return max(parsed, minimum)
+
+
+def _parse_internal_keys(active_kid: str, fallback_secret: str) -> dict[str, str]:
+    raw = os.getenv("IRIS_INTERNAL_CONTROL_KEYS_JSON", "").strip()
+    if not raw:
+        return {active_kid: fallback_secret}
+
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        _log_event(
+            "warning",
+            "internal_control_keys_parse_failed",
+            detail="invalid JSON in IRIS_INTERNAL_CONTROL_KEYS_JSON",
+        )
+        return {active_kid: fallback_secret}
+
+    if not isinstance(payload, dict):
+        _log_event(
+            "warning",
+            "internal_control_keys_parse_failed",
+            detail="IRIS_INTERNAL_CONTROL_KEYS_JSON must be an object",
+        )
+        return {active_kid: fallback_secret}
+
+    keys: dict[str, str] = {}
+    for kid, secret in payload.items():
+        if isinstance(kid, str) and isinstance(secret, str) and secret:
+            keys[kid] = secret
+
+    if not keys:
+        return {active_kid: fallback_secret}
+
+    if active_kid not in keys:
+        keys[active_kid] = fallback_secret
+    return keys
+
+
 def _default_settings() -> AppSettings:
     bin_dir = os.getenv("IRIS_TRANSPORT_BIN_DIR")
+    internal_control_secret = os.getenv(
+        "IRIS_INTERNAL_CONTROL_SECRET", "iris-dev-internal-secret"
+    )
+    internal_control_active_kid = os.getenv("IRIS_INTERNAL_CONTROL_ACTIVE_KID", "default")
+    internal_control_keys = _parse_internal_keys(internal_control_active_kid, internal_control_secret)
+
     return AppSettings(
         evidence_root=Path(os.getenv("IRIS_EVIDENCE_ROOT", str(DEFAULT_EVIDENCE_ROOT))),
         transport_manifest=Path(
             os.getenv("IRIS_TRANSPORT_MANIFEST_PATH", str(DEFAULT_TRANSPORT_MANIFEST))
         ),
         transport_bin_dir=Path(bin_dir) if bin_dir else None,
-        internal_control_secret=os.getenv(
-            "IRIS_INTERNAL_CONTROL_SECRET", "iris-dev-internal-secret"
-        ),
+        internal_control_secret=internal_control_secret,
+        internal_control_active_kid=internal_control_active_kid,
+        internal_control_keys=internal_control_keys,
         server_version=os.getenv("IRIS_SERVER_VERSION", "0.1.0-strawman"),
+        player_session_ttl_seconds=_env_int("IRIS_PLAYER_SESSION_TTL_SECONDS", 3600, 1),
+        max_active_sessions=_env_int("IRIS_MAX_ACTIVE_SESSIONS", 32, 1),
+        max_active_subprocesses=_env_int("IRIS_MAX_ACTIVE_SUBPROCESSES", 96, 3),
     )
 
 
@@ -148,31 +278,39 @@ def _b64url_encode(value: bytes) -> str:
     return base64.urlsafe_b64encode(value).decode("utf-8").rstrip("=")
 
 
-def mint_internal_token(secret: str, ttl_seconds: int = 3600) -> str:
-    payload = {
+def _build_internal_payload(ttl_seconds: int, kid: str | None = None) -> dict[str, Any]:
+    payload: dict[str, Any] = {
         "scope": "internal-control",
         "exp": int(time.time()) + ttl_seconds,
         "iat": int(time.time()),
         "jti": uuid.uuid4().hex,
     }
+    if kid:
+        payload["kid"] = kid
+    return payload
+
+
+def mint_internal_token(secret: str, ttl_seconds: int = 3600) -> str:
+    """Mint the backward-compatible v1 token."""
+    payload = _build_internal_payload(ttl_seconds=ttl_seconds)
     payload_bytes = json.dumps(payload, separators=(",", ":")).encode("utf-8")
     signature = hmac.new(secret.encode("utf-8"), payload_bytes, hashlib.sha256).digest()
     return f"v1.{_b64url_encode(payload_bytes)}.{_b64url_encode(signature)}"
 
 
-def verify_internal_token(token: str, secret: str) -> dict[str, Any]:
-    parts = token.split(".")
-    if len(parts) != 3 or parts[0] != "v1":
-        raise ValueError("invalid token format")
+def mint_internal_token_v2(keys_by_kid: dict[str, str], active_kid: str, ttl_seconds: int = 3600) -> str:
+    """Mint a v2 token that carries a key id for rotation."""
+    secret = keys_by_kid.get(active_kid)
+    if not secret:
+        raise ValueError("active kid not found in key map")
 
-    payload_raw = _b64url_decode(parts[1])
-    signature = _b64url_decode(parts[2])
-    expected = hmac.new(secret.encode("utf-8"), payload_raw, hashlib.sha256).digest()
+    payload = _build_internal_payload(ttl_seconds=ttl_seconds, kid=active_kid)
+    payload_bytes = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    signature = hmac.new(secret.encode("utf-8"), payload_bytes, hashlib.sha256).digest()
+    return f"v2.{_b64url_encode(payload_bytes)}.{_b64url_encode(signature)}"
 
-    if not hmac.compare_digest(signature, expected):
-        raise ValueError("invalid token signature")
 
-    payload = json.loads(payload_raw.decode("utf-8"))
+def _verify_token_payload(payload: dict[str, Any]) -> dict[str, Any]:
     if payload.get("scope") != "internal-control":
         raise ValueError("invalid token scope")
     if int(payload.get("exp", 0)) < int(time.time()):
@@ -180,48 +318,122 @@ def verify_internal_token(token: str, secret: str) -> dict[str, Any]:
     return payload
 
 
+def verify_internal_token(
+    token: str,
+    secret: str,
+    keys_by_kid: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    parts = token.split(".")
+    if len(parts) != 3:
+        raise ValueError("invalid token format")
+
+    version = parts[0]
+    payload_raw = _b64url_decode(parts[1])
+    signature = _b64url_decode(parts[2])
+
+    if version == "v1":
+        expected = hmac.new(secret.encode("utf-8"), payload_raw, hashlib.sha256).digest()
+        if not hmac.compare_digest(signature, expected):
+            raise ValueError("invalid token signature")
+        payload = json.loads(payload_raw.decode("utf-8"))
+        return _verify_token_payload(payload)
+
+    if version == "v2":
+        payload = json.loads(payload_raw.decode("utf-8"))
+        kid = payload.get("kid")
+        if not isinstance(kid, str) or not kid:
+            raise ValueError("missing token kid")
+
+        if keys_by_kid is None:
+            keys_by_kid = {}
+        selected = keys_by_kid.get(kid)
+        if not selected:
+            raise ValueError("unknown token kid")
+
+        expected = hmac.new(selected.encode("utf-8"), payload_raw, hashlib.sha256).digest()
+        if not hmac.compare_digest(signature, expected):
+            raise ValueError("invalid token signature")
+        return _verify_token_payload(payload)
+
+    raise ValueError("invalid token format")
+
+
 class TransportOrchestrator:
-    def __init__(self, settings: AppSettings) -> None:
+    def __init__(self, settings: AppSettings, runtime_metrics: RuntimeMetrics) -> None:
         self._settings = settings
+        self._runtime_metrics = runtime_metrics
         self._lock = threading.Lock()
         self._sessions: dict[str, SessionRecord] = {}
+        self._reserved_subprocess_slots = 0
 
     def start_session(self, request: StartTransportSessionRequest) -> SessionRecord:
-        session_id = f"sess-{uuid.uuid4().hex[:12]}"
-        correlation_id = f"corr-{uuid.uuid4().hex[:12]}"
-        artifact_dir = self._settings.evidence_root / "transport-sessions" / session_id
-        artifact_dir.mkdir(parents=True, exist_ok=True)
-
-        record = SessionRecord(
-            session_id=session_id,
-            correlation_id=correlation_id,
-            profile=request.profile,
-            stream_id=request.stream_id,
-            relay_addr=request.relay_addr,
-            frames=request.frames,
-            fps=request.fps,
-            payload_size=request.payload_size,
-            timeout_ms=request.timeout_ms,
-            started_at_utc=_utc_now(),
-            artifact_dir=artifact_dir,
-        )
         with self._lock:
-            self._sessions[session_id] = record
+            active_sessions = self._count_active_sessions_locked()
+            active_subprocesses = self._count_active_subprocesses_locked()
+            projected_subprocesses = active_subprocesses + self._reserved_subprocess_slots + 3
 
-        worker = threading.Thread(target=self._run_session, args=(session_id,), daemon=True)
+            if active_sessions >= self._settings.max_active_sessions:
+                self._runtime_metrics.inc("session_start_rejected_total")
+                raise SessionCapacityError("active session limit reached")
+            if projected_subprocesses > self._settings.max_active_subprocesses:
+                self._runtime_metrics.inc("session_start_rejected_total")
+                raise SessionCapacityError("active subprocess limit reached")
+
+            session_id = f"sess-{uuid.uuid4().hex[:12]}"
+            correlation_id = f"corr-{uuid.uuid4().hex[:12]}"
+            artifact_dir = self._settings.evidence_root / "transport-sessions" / session_id
+            artifact_dir.mkdir(parents=True, exist_ok=True)
+
+            record = SessionRecord(
+                session_id=session_id,
+                correlation_id=correlation_id,
+                profile=request.profile,
+                stream_id=request.stream_id,
+                relay_addr=request.relay_addr,
+                frames=request.frames,
+                fps=request.fps,
+                payload_size=request.payload_size,
+                timeout_ms=request.timeout_ms,
+                started_at_utc=_utc_now(),
+                artifact_dir=artifact_dir,
+                reserved_subprocess_slots=3,
+            )
+            self._sessions[session_id] = record
+            self._reserved_subprocess_slots += 3
+
+        self._runtime_metrics.inc("transport_sessions_started_total")
+        _log_event(
+            "info",
+            "transport_session_start_accepted",
+            session_id=record.session_id,
+            correlation_id=record.correlation_id,
+            profile=record.profile,
+            relay_addr=record.relay_addr,
+        )
+
+        worker = threading.Thread(target=self._run_session, args=(record.session_id,), daemon=True)
         worker.start()
         return record
 
     def stop_session(self, session_id: str, reason: str) -> SessionRecord:
-        del reason
         with self._lock:
             record = self._sessions.get(session_id)
             if record is None:
                 raise KeyError(session_id)
             self._terminate_processes(record)
-            if record.status not in {"completed", "failed", "stopped"}:
+            self._release_reserved_slots_locked(record)
+            if record.status not in TERMINAL_STATUSES:
                 record.status = "stopped"
                 record.stopped_at_utc = _utc_now()
+                self._runtime_metrics.inc("transport_sessions_stopped_total")
+
+        _log_event(
+            "info",
+            "transport_session_stopped",
+            session_id=record.session_id,
+            correlation_id=record.correlation_id,
+            reason=reason,
+        )
         return record
 
     def get_session(self, session_id: str) -> SessionRecord:
@@ -231,15 +443,63 @@ class TransportOrchestrator:
                 raise KeyError(session_id)
             return record
 
+    def snapshot_state(self) -> dict[str, int]:
+        with self._lock:
+            status_counts = Counter(record.status for record in self._sessions.values())
+            return {
+                "active_sessions": self._count_active_sessions_locked(),
+                "active_subprocesses": self._count_active_subprocesses_locked(),
+                "total_sessions": len(self._sessions),
+                "sessions_starting": status_counts.get("starting", 0),
+                "sessions_running": status_counts.get("running", 0),
+                "sessions_completed": status_counts.get("completed", 0),
+                "sessions_failed": status_counts.get("failed", 0),
+                "sessions_stopped": status_counts.get("stopped", 0),
+                "reserved_subprocess_slots": self._reserved_subprocess_slots,
+            }
+
     def shutdown(self) -> None:
         with self._lock:
             for record in self._sessions.values():
                 self._terminate_processes(record)
+                self._release_reserved_slots_locked(record)
+
+    def _count_active_sessions_locked(self) -> int:
+        return sum(1 for record in self._sessions.values() if record.status in ACTIVE_STATUSES)
+
+    def _count_active_subprocesses_locked(self) -> int:
+        active = 0
+        for record in self._sessions.values():
+            for proc in (record.relay_proc, record.recv_proc, record.send_proc):
+                if proc is not None and proc.poll() is None:
+                    active += 1
+        return active
+
+    def _release_reserved_slots_locked(self, record: SessionRecord) -> None:
+        if record.reserved_subprocess_slots <= 0:
+            return
+        self._reserved_subprocess_slots = max(
+            0, self._reserved_subprocess_slots - record.reserved_subprocess_slots
+        )
+        record.reserved_subprocess_slots = 0
+
+    def _consume_reserved_slot(self, record: SessionRecord) -> None:
+        with self._lock:
+            if record.reserved_subprocess_slots > 0:
+                record.reserved_subprocess_slots -= 1
+                self._reserved_subprocess_slots = max(0, self._reserved_subprocess_slots - 1)
 
     def _run_session(self, session_id: str) -> None:
         with self._lock:
             record = self._sessions[session_id]
             record.status = "running"
+
+        _log_event(
+            "info",
+            "transport_session_running",
+            session_id=record.session_id,
+            correlation_id=record.correlation_id,
+        )
 
         relay_log = record.artifact_dir / "relay.log"
         recv_log = record.artifact_dir / f"{record.profile}-recv.log"
@@ -249,6 +509,7 @@ class TransportOrchestrator:
         try:
             relay_args = ["--auto-cert", "--bind", record.relay_addr]
             record.relay_proc = self._spawn("iris-relay", relay_args, relay_log, record)
+            self._consume_reserved_slot(record)
             self._wait_for_relay_ready(record, relay_log)
 
             recv_args = [
@@ -264,6 +525,7 @@ class TransportOrchestrator:
                 str(output_file),
             ]
             record.recv_proc = self._spawn("iris-recv", recv_args, recv_log, record)
+            self._consume_reserved_slot(record)
             time.sleep(self._settings.recv_startup_delay_sec)
 
             send_args = [
@@ -281,6 +543,7 @@ class TransportOrchestrator:
                 str(record.payload_size),
             ]
             record.send_proc = self._spawn("iris-send", send_args, send_log, record)
+            self._consume_reserved_slot(record)
 
             send_timeout = max(record.timeout_ms / 1000.0, 1.0)
             recv_timeout = max(record.timeout_ms / 1000.0, 1.0)
@@ -303,14 +566,53 @@ class TransportOrchestrator:
                 if record.status not in {"stopped", "failed"}:
                     record.status = "completed"
                     record.stopped_at_utc = _utc_now()
+                    self._runtime_metrics.inc("transport_sessions_completed_total")
+                self._release_reserved_slots_locked(record)
+
             self._write_session_summary(record)
+            _log_event(
+                "info",
+                "transport_session_completed",
+                session_id=record.session_id,
+                correlation_id=record.correlation_id,
+                frames_sent=record.frames_sent,
+                frames_received=record.frames_received,
+                frames_dropped=record.frames_dropped,
+                avg_latency_ms=record.avg_latency_ms,
+            )
+        except TimeoutError as exc:
+            self._runtime_metrics.inc("transport_session_timeouts_total")
+            with self._lock:
+                self._terminate_processes(record)
+                record.status = "failed"
+                record.stopped_at_utc = _utc_now()
+                record.error = str(exc)
+                self._runtime_metrics.inc("transport_sessions_failed_total")
+                self._release_reserved_slots_locked(record)
+            self._write_session_summary(record)
+            _log_event(
+                "error",
+                "transport_session_timeout",
+                session_id=record.session_id,
+                correlation_id=record.correlation_id,
+                detail=str(exc),
+            )
         except Exception as exc:  # noqa: BLE001
             with self._lock:
                 self._terminate_processes(record)
                 record.status = "failed"
                 record.stopped_at_utc = _utc_now()
                 record.error = str(exc)
+                self._runtime_metrics.inc("transport_sessions_failed_total")
+                self._release_reserved_slots_locked(record)
             self._write_session_summary(record)
+            _log_event(
+                "error",
+                "transport_session_failed",
+                session_id=record.session_id,
+                correlation_id=record.correlation_id,
+                detail=str(exc),
+            )
 
     def _wait_for_relay_ready(self, record: SessionRecord, relay_log: Path) -> None:
         timeout_sec = min(
@@ -350,7 +652,7 @@ class TransportOrchestrator:
         env["IRIS_ARTIFACT_DIR"] = str(record.artifact_dir)
         env["RUST_LOG"] = env.get("RUST_LOG", "info")
         try:
-            return subprocess.Popen(
+            proc = subprocess.Popen(
                 command,
                 cwd=PROJECT_ROOT,
                 stdout=handle_fd,
@@ -358,6 +660,18 @@ class TransportOrchestrator:
                 text=True,
                 env=env,
             )
+            _log_event(
+                "info",
+                "transport_subprocess_spawned",
+                session_id=record.session_id,
+                correlation_id=record.correlation_id,
+                binary=logical_name,
+                pid=proc.pid,
+            )
+            return proc
+        except Exception:
+            self._runtime_metrics.inc("transport_subprocess_spawn_failures_total")
+            raise
         finally:
             os.close(handle_fd)
 
@@ -519,7 +833,9 @@ def _run_matmul_benchmark(settings: AppSettings, req: MatmulRequest) -> dict[str
 def create_app(settings: AppSettings | None = None) -> FastAPI:
     resolved_settings = settings or _default_settings()
     resolved_settings.evidence_root.mkdir(parents=True, exist_ok=True)
-    orchestrator = TransportOrchestrator(resolved_settings)
+
+    runtime_metrics = RuntimeMetrics()
+    orchestrator = TransportOrchestrator(resolved_settings, runtime_metrics)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -534,6 +850,7 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     app.state.settings = resolved_settings
+    app.state.runtime_metrics = runtime_metrics
     app.state.orchestrator = orchestrator
     app.state.player_sessions: dict[str, PlayerSessionRecord] = {}
     app.state.player_sessions_lock = threading.Lock()
@@ -542,11 +859,20 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         if authorization is None or not authorization.startswith("Bearer "):
+            runtime_metrics.inc("internal_auth_failures_total")
+            _log_event("warning", "internal_auth_failed", detail="missing bearer token")
             raise HTTPException(status_code=401, detail="missing bearer token")
+
         token = authorization[7:]
         try:
-            return verify_internal_token(token, resolved_settings.internal_control_secret)
+            return verify_internal_token(
+                token,
+                resolved_settings.internal_control_secret,
+                resolved_settings.internal_control_keys,
+            )
         except ValueError as exc:
+            runtime_metrics.inc("internal_auth_failures_total")
+            _log_event("warning", "internal_auth_failed", detail=str(exc))
             raise HTTPException(status_code=401, detail=str(exc)) from exc
 
     def require_player_session_token(
@@ -554,14 +880,50 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         session_token: str | None,
     ) -> PlayerSessionRecord:
         if not session_token:
+            runtime_metrics.inc("player_auth_failures_total")
+            _log_event(
+                "warning",
+                "player_auth_failed",
+                session_id=session_id,
+                detail="missing session token",
+            )
             raise HTTPException(status_code=401, detail="missing session token")
 
         with app.state.player_sessions_lock:
             record = app.state.player_sessions.get(session_id)
         if record is None:
             raise HTTPException(status_code=404, detail="session not found")
+
         if not hmac.compare_digest(session_token, record.session_token):
+            runtime_metrics.inc("player_auth_failures_total")
+            _log_event(
+                "warning",
+                "player_auth_failed",
+                session_id=session_id,
+                detail="invalid session token",
+            )
             raise HTTPException(status_code=401, detail="invalid session token")
+
+        if record.revoked_at_utc is not None:
+            runtime_metrics.inc("player_auth_failures_total")
+            _log_event(
+                "warning",
+                "player_auth_failed",
+                session_id=session_id,
+                detail="session token revoked",
+            )
+            raise HTTPException(status_code=401, detail="session token revoked")
+
+        if _parse_utc(record.expires_at_utc) <= datetime.now(timezone.utc):
+            runtime_metrics.inc("player_auth_failures_total")
+            _log_event(
+                "warning",
+                "player_auth_failed",
+                session_id=session_id,
+                detail="session token expired",
+            )
+            raise HTTPException(status_code=401, detail="session token expired")
+
         return record
 
     @app.get("/healthz")
@@ -572,6 +934,66 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
             "version": resolved_settings.server_version,
             "git_sha": git_sha,
         }
+
+    @app.get("/metrics")
+    def metrics() -> Response:
+        runtime_snapshot = runtime_metrics.snapshot()
+        orchestrator_snapshot = orchestrator.snapshot_state()
+
+        with app.state.player_sessions_lock:
+            total_player_sessions = len(app.state.player_sessions)
+            active_player_sessions = sum(
+                1
+                for session in app.state.player_sessions.values()
+                if session.revoked_at_utc is None
+                and _parse_utc(session.expires_at_utc) > datetime.now(timezone.utc)
+            )
+
+        lines = [
+            "# HELP iris_server_internal_auth_failures_total Internal auth failures.",
+            "# TYPE iris_server_internal_auth_failures_total counter",
+            f"iris_server_internal_auth_failures_total {runtime_snapshot.get('internal_auth_failures_total', 0)}",
+            "# HELP iris_server_player_auth_failures_total Player auth failures.",
+            "# TYPE iris_server_player_auth_failures_total counter",
+            f"iris_server_player_auth_failures_total {runtime_snapshot.get('player_auth_failures_total', 0)}",
+            "# HELP iris_server_transport_sessions_started_total Started transport sessions.",
+            "# TYPE iris_server_transport_sessions_started_total counter",
+            f"iris_server_transport_sessions_started_total {runtime_snapshot.get('transport_sessions_started_total', 0)}",
+            "# HELP iris_server_transport_sessions_completed_total Completed transport sessions.",
+            "# TYPE iris_server_transport_sessions_completed_total counter",
+            f"iris_server_transport_sessions_completed_total {runtime_snapshot.get('transport_sessions_completed_total', 0)}",
+            "# HELP iris_server_transport_sessions_failed_total Failed transport sessions.",
+            "# TYPE iris_server_transport_sessions_failed_total counter",
+            f"iris_server_transport_sessions_failed_total {runtime_snapshot.get('transport_sessions_failed_total', 0)}",
+            "# HELP iris_server_transport_sessions_stopped_total Stopped transport sessions.",
+            "# TYPE iris_server_transport_sessions_stopped_total counter",
+            f"iris_server_transport_sessions_stopped_total {runtime_snapshot.get('transport_sessions_stopped_total', 0)}",
+            "# HELP iris_server_transport_session_timeouts_total Timed out transport sessions.",
+            "# TYPE iris_server_transport_session_timeouts_total counter",
+            f"iris_server_transport_session_timeouts_total {runtime_snapshot.get('transport_session_timeouts_total', 0)}",
+            "# HELP iris_server_transport_subprocess_spawn_failures_total Spawn failures.",
+            "# TYPE iris_server_transport_subprocess_spawn_failures_total counter",
+            f"iris_server_transport_subprocess_spawn_failures_total {runtime_snapshot.get('transport_subprocess_spawn_failures_total', 0)}",
+            "# HELP iris_server_session_start_rejected_total Session starts rejected by capacity control.",
+            "# TYPE iris_server_session_start_rejected_total counter",
+            f"iris_server_session_start_rejected_total {runtime_snapshot.get('session_start_rejected_total', 0)}",
+            "# HELP iris_server_active_sessions Active transport sessions.",
+            "# TYPE iris_server_active_sessions gauge",
+            f"iris_server_active_sessions {orchestrator_snapshot['active_sessions']}",
+            "# HELP iris_server_active_subprocesses Active transport subprocesses.",
+            "# TYPE iris_server_active_subprocesses gauge",
+            f"iris_server_active_subprocesses {orchestrator_snapshot['active_subprocesses']}",
+            "# HELP iris_server_total_sessions Total tracked transport sessions.",
+            "# TYPE iris_server_total_sessions gauge",
+            f"iris_server_total_sessions {orchestrator_snapshot['total_sessions']}",
+            "# HELP iris_server_player_sessions_total Total tracked player sessions.",
+            "# TYPE iris_server_player_sessions_total gauge",
+            f"iris_server_player_sessions_total {total_player_sessions}",
+            "# HELP iris_server_player_sessions_active Active player sessions.",
+            "# TYPE iris_server_player_sessions_active gauge",
+            f"iris_server_player_sessions_active {active_player_sessions}",
+        ]
+        return Response("\n".join(lines) + "\n", media_type="text/plain; version=0.0.4")
 
     @app.post("/bench/matmul")
     def run_matmul(req: MatmulRequest) -> dict[str, Any]:
@@ -592,7 +1014,12 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         req: StartTransportSessionRequest,
         _: dict[str, Any] = Depends(require_internal_auth),
     ) -> dict[str, str]:
-        record = orchestrator.start_session(req)
+        try:
+            record = orchestrator.start_session(req)
+        except SessionCapacityError as exc:
+            _log_event("warning", "transport_session_start_rejected", detail=str(exc))
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
         return {
             "session_id": record.session_id,
             "started_at_utc": record.started_at_utc,
@@ -649,7 +1076,13 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
             payload_size=req.payload_size,
             timeout_ms=req.timeout_ms,
         )
-        transport = orchestrator.start_session(session_req)
+
+        try:
+            transport = orchestrator.start_session(session_req)
+        except SessionCapacityError as exc:
+            _log_event("warning", "player_session_start_rejected", detail=str(exc))
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
         session_token = f"pst-{uuid.uuid4().hex}"
         record = PlayerSessionRecord(
             session_id=transport.session_id,
@@ -661,6 +1094,7 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
             metrics_url=f"/player/sessions/{transport.session_id}/metrics",
             websocket_url=f"/player/sessions/{transport.session_id}/ws",
             created_at_utc=_utc_now(),
+            expires_at_utc=_utc_after(resolved_settings.player_session_ttl_seconds),
         )
         with app.state.player_sessions_lock:
             app.state.player_sessions[record.session_id] = record
@@ -674,6 +1108,37 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
             "metrics_url": record.metrics_url,
             "websocket_url": record.websocket_url,
             "correlation_id": record.correlation_id,
+            "created_at_utc": record.created_at_utc,
+            "expires_at_utc": record.expires_at_utc,
+            "revoked_at_utc": record.revoked_at_utc,
+        }
+
+    @app.post("/player/sessions/{session_id}/revoke")
+    def revoke_player_session(
+        session_id: str,
+        req: RevokePlayerSessionRequest,
+        x_session_token: str | None = Header(default=None, alias="X-Session-Token"),
+    ) -> dict[str, Any]:
+        record = require_player_session_token(session_id, x_session_token)
+
+        revoked_at_utc = _utc_now()
+        with app.state.player_sessions_lock:
+            stored = app.state.player_sessions.get(session_id)
+            if stored is None:
+                raise HTTPException(status_code=404, detail="session not found")
+            stored.revoked_at_utc = revoked_at_utc
+
+        _log_event(
+            "info",
+            "player_session_revoked",
+            session_id=record.session_id,
+            correlation_id=record.correlation_id,
+            reason=req.reason,
+        )
+        return {
+            "session_id": record.session_id,
+            "revoked_at_utc": revoked_at_utc,
+            "status": "revoked",
         }
 
     @app.get("/player/sessions/{session_id}")
@@ -693,6 +1158,9 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
             "metrics_url": record.metrics_url,
             "websocket_url": record.websocket_url,
             "correlation_id": record.correlation_id,
+            "created_at_utc": record.created_at_utc,
+            "expires_at_utc": record.expires_at_utc,
+            "revoked_at_utc": record.revoked_at_utc,
             "status": transport.status,
             "error": transport.error,
         }
@@ -717,6 +1185,8 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
             "status": transport.status,
             "error": transport.error,
             "metrics_url": record.metrics_url,
+            "expires_at_utc": record.expires_at_utc,
+            "revoked_at_utc": record.revoked_at_utc,
         }
 
     @app.websocket("/player/sessions/{session_id}/ws")
@@ -740,7 +1210,7 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
 
         timeout_at = time.monotonic() + min(max(transport.timeout_ms / 1000.0, 2.0), 30.0)
         out_file = transport.artifact_dir / f"{transport.profile}.bin"
-        while not out_file.exists() and transport.status in {"starting", "running"}:
+        while not out_file.exists() and transport.status in ACTIVE_STATUSES:
             if time.monotonic() > timeout_at:
                 break
             await asyncio.sleep(0.1)

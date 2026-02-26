@@ -7,6 +7,9 @@ Canonical documentation for Project Iris.
 - `architecture/adr-0001-runtime-and-deployment.md`: infra decision for QUIC-first workloads.
 - `platform/spanner-getting-started.md`: initial Spanner setup and schema examples.
 - `roadmap/build-in-public.md`: initial public delivery milestones.
+- `policy/licensing-strategy.md`: current AGPL/Apache boundary and contribution model.
+- `policy/data-governance-baseline.md`: MVP data handling and privacy baseline.
+- `strategy/market-wedge.md`: target customer and first paid use-case hypothesis.
 - `contributing.md`: repository contribution conventions.
 - `runbooks/`: operational procedures and incident playbooks.
 - `runbooks/known-issues.md`: required log for accepted `YELLOW` issues.

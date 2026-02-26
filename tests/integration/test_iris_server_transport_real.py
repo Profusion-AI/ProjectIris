@@ -31,6 +31,8 @@ def test_real_transport_session_completes(tmp_path: Path) -> None:
         transport_manifest=REPO_ROOT / "services" / "transport-core" / "Cargo.toml",
         transport_bin_dir=None,
         internal_control_secret=secret,
+        internal_control_active_kid="default",
+        internal_control_keys={"default": secret},
         server_version="test-real",
         relay_startup_timeout_sec=25,
         recv_startup_delay_sec=0.4,
