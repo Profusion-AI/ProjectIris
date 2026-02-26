@@ -41,8 +41,32 @@ jobs:
       - name: Benchmark smoke
         run: bash services/iris-server/bench/smoke.sh
 
+      - name: Generate iris-server benchmark evidence
+        id: bench_evidence
+        run: |
+          RUN_ID=$(date -u +"%Y%m%dT%H%M%SZ")
+          EVIDENCE_ROOT="services/iris-server/docs/evidence"
+          RUN_DIR="${EVIDENCE_ROOT}/${RUN_ID}"
+          mkdir -p "${RUN_DIR}"
+          python3 services/iris-server/bench/run_matmul_baseline.py \
+            --run-id "${RUN_ID}" \
+            --n 64 --runs 5 --warmup-runs 1 --seed 7 \
+            --out-dir "${EVIDENCE_ROOT}"
+          SUMMARY_PATH="${RUN_DIR}/summary.json"
+          python3 services/iris-server/bench/validate_evidence.py \
+            "${SUMMARY_PATH}"
+          echo "evidence_dir=${RUN_DIR}" >> "$GITHUB_OUTPUT"
+          echo "summary_path=${SUMMARY_PATH}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload iris-server benchmark artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: iris-server-benchmark-${{ github.sha }}
+          path: ${{ steps.bench_evidence.outputs.summary_path }}
+          if-no-files-found: error
+
       - name: Integration and e2e tests
         run: |
           pytest -q \
-            tests/integration/test_iris_server_transport.py \
+            tests/integration/ \
             tests/e2e/test_player_flow.py
