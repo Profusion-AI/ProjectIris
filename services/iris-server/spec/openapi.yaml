@@ -7,6 +7,17 @@ info:
 servers:
   - url: http://localhost:8080
 paths:
+  /metrics:
+    get:
+      operationId: getPrometheusMetrics
+      summary: Export service and orchestration metrics in Prometheus format
+      responses:
+        '200':
+          description: Prometheus text exposition
+          content:
+            text/plain:
+              schema:
+                type: string
   /healthz:
     get:
       operationId: healthz
@@ -123,6 +134,38 @@ paths:
                 $ref: '#/components/schemas/PlayerSessionMetrics'
         '401':
           description: Missing or invalid session token
+        '404':
+          description: Session not found
+  /player/sessions/{session_id}/revoke:
+    post:
+      operationId: revokePlayerSession
+      summary: Revoke a player session token
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: X-Session-Token
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RevokePlayerSessionRequest'
+      responses:
+        '200':
+          description: Session token revoked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RevokePlayerSessionResponse'
+        '401':
+          description: Missing, invalid, expired, or revoked session token
         '404':
           description: Session not found
 components:
@@ -261,6 +304,8 @@ components:
         - metrics_url
         - websocket_url
         - correlation_id
+        - created_at_utc
+        - expires_at_utc
       properties:
         session_id:
           type: string
@@ -279,6 +324,13 @@ components:
           type: string
         correlation_id:
           type: string
+        created_at_utc:
+          type: string
+        expires_at_utc:
+          type: string
+        revoked_at_utc:
+          type: string
+          nullable: true
     PlayerSessionStatus:
       allOf:
         - $ref: '#/components/schemas/PlayerSessionResponse'
@@ -328,3 +380,28 @@ components:
           nullable: true
         metrics_url:
           type: string
+        expires_at_utc:
+          type: string
+        revoked_at_utc:
+          type: string
+          nullable: true
+    RevokePlayerSessionRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          default: manual
+    RevokePlayerSessionResponse:
+      type: object
+      required:
+        - session_id
+        - revoked_at_utc
+        - status
+      properties:
+        session_id:
+          type: string
+        revoked_at_utc:
+          type: string
+        status:
+          type: string
+          enum: [revoked]

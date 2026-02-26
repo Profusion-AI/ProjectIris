@@ -50,6 +50,7 @@ As components mature, add component-local commands in each folder README (for ex
   - push docs-only work to `docs-staging`,
   - GitHub Actions workflow `docs-daily-sync` runs at `22:00 UTC`,
   - the workflow creates/updates a PR from `docs-staging` to `main` only when the diff is limited to `docs/**`.
+  - recovery procedure for non-doc drift is documented in `docs/runbooks/docs-fast-lane-recovery.md`.
 
 ## Commit & Pull Request Guidelines
 - Follow conventional-style commits (`docs:`, `chore:`, `feat:`, `fix:`).
@@ -59,3 +60,9 @@ As components mature, add component-local commands in each folder README (for ex
 
 ## Security & Configuration Tips
 Do not commit secrets or cloud credentials. Use placeholders such as `<PROJECT_ID>` and keep environment-specific values in ignored `.env` files.
+
+## Product Governance Docs
+- Keep business and policy docs current when changing product posture:
+  - `docs/policy/licensing-strategy.md`
+  - `docs/policy/data-governance-baseline.md`
+  - `docs/strategy/market-wedge.md`

@@ -14,8 +14,28 @@ if str(IRIS_SERVER_ROOT) not in sys.path:
 if str(TESTS_ROOT) not in sys.path:
     sys.path.insert(0, str(TESTS_ROOT))
 
-from app.main import AppSettings, create_app, mint_internal_token  # noqa: E402
+from app.main import (  # noqa: E402
+    AppSettings,
+    create_app,
+    mint_internal_token,
+    mint_internal_token_v2,
+)
 from helpers.fake_transport import create_fake_transport_bin_dir  # noqa: E402
+
+
+def _settings(tmp_path: Path, secret: str, **kwargs) -> AppSettings:
+    active_kid = kwargs.pop("internal_control_active_kid", "default")
+    keys = kwargs.pop("internal_control_keys", {active_kid: secret})
+    return AppSettings(
+        evidence_root=tmp_path / "evidence",
+        transport_manifest=REPO_ROOT / "services" / "transport-core" / "Cargo.toml",
+        transport_bin_dir=kwargs.pop("transport_bin_dir"),
+        internal_control_secret=secret,
+        internal_control_active_kid=active_kid,
+        internal_control_keys=keys,
+        server_version="test",
+        **kwargs,
+    )
 
 
 def _poll_metrics(client: TestClient, session_id: str, token: str, timeout_sec: float = 5.0):
@@ -36,13 +56,7 @@ def _poll_metrics(client: TestClient, session_id: str, token: str, timeout_sec: 
 def test_internal_transport_session_start_and_metrics(tmp_path: Path) -> None:
     secret = "integration-secret"
     fake_bins = create_fake_transport_bin_dir(tmp_path)
-    settings = AppSettings(
-        evidence_root=tmp_path / "evidence",
-        transport_manifest=REPO_ROOT / "services" / "transport-core" / "Cargo.toml",
-        transport_bin_dir=fake_bins,
-        internal_control_secret=secret,
-        server_version="test",
-    )
+    settings = _settings(tmp_path, secret, transport_bin_dir=fake_bins)
     app = create_app(settings)
     client = TestClient(app)
 
@@ -74,15 +88,41 @@ def test_internal_transport_session_start_and_metrics(tmp_path: Path) -> None:
     assert Path(metrics["artifact_path"]).exists()
 
 
-def test_internal_auth_rejects_unsigned_token(tmp_path: Path) -> None:
+def test_internal_auth_accepts_v2_token(tmp_path: Path) -> None:
+    secret = "rotation-fallback"
     fake_bins = create_fake_transport_bin_dir(tmp_path)
-    settings = AppSettings(
-        evidence_root=tmp_path / "evidence",
-        transport_manifest=REPO_ROOT / "services" / "transport-core" / "Cargo.toml",
+    keys = {"kid-a": "super-secret-a", "kid-b": "super-secret-b"}
+    settings = _settings(
+        tmp_path,
+        secret,
         transport_bin_dir=fake_bins,
-        internal_control_secret="another-secret",
-        server_version="test",
+        internal_control_active_kid="kid-a",
+        internal_control_keys=keys,
     )
+    app = create_app(settings)
+    client = TestClient(app)
+
+    token = mint_internal_token_v2(keys_by_kid=keys, active_kid="kid-a")
+    start_response = client.post(
+        "/internal/transport/session/start",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "stream_id": 222,
+            "profile": "real-time",
+            "relay_addr": "127.0.0.1:7449",
+            "frames": 8,
+            "fps": 30,
+            "payload_size": 256,
+            "timeout_ms": 3000,
+        },
+    )
+    assert start_response.status_code == 200
+
+
+def test_internal_auth_rejects_unsigned_token(tmp_path: Path) -> None:
+    secret = "another-secret"
+    fake_bins = create_fake_transport_bin_dir(tmp_path)
+    settings = _settings(tmp_path, secret, transport_bin_dir=fake_bins)
     app = create_app(settings)
     client = TestClient(app)
 
@@ -100,3 +140,45 @@ def test_internal_auth_rejects_unsigned_token(tmp_path: Path) -> None:
         },
     )
     assert response.status_code == 401
+
+
+def test_internal_session_start_rejects_at_capacity(tmp_path: Path) -> None:
+    secret = "capacity-secret"
+    fake_bins = create_fake_transport_bin_dir(tmp_path)
+    settings = _settings(
+        tmp_path,
+        secret,
+        transport_bin_dir=fake_bins,
+        max_active_sessions=0,
+    )
+    app = create_app(settings)
+    client = TestClient(app)
+    token = mint_internal_token(secret)
+
+    response = client.post(
+        "/internal/transport/session/start",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "stream_id": 500,
+            "profile": "real-time",
+            "relay_addr": "127.0.0.1:7550",
+            "frames": 5,
+            "fps": 30,
+            "payload_size": 64,
+            "timeout_ms": 3000,
+        },
+    )
+    assert response.status_code == 503
+
+
+def test_prometheus_metrics_endpoint(tmp_path: Path) -> None:
+    secret = "metrics-secret"
+    fake_bins = create_fake_transport_bin_dir(tmp_path)
+    settings = _settings(tmp_path, secret, transport_bin_dir=fake_bins)
+    app = create_app(settings)
+    client = TestClient(app)
+
+    metrics = client.get("/metrics")
+    assert metrics.status_code == 200
+    assert "iris_server_active_sessions" in metrics.text
+    assert "iris_server_internal_auth_failures_total" in metrics.text

@@ -27,6 +27,10 @@ Goal: prove social-state scalability and linear behavior under load.
 ## Delivery Governance Baseline
 - CI/CD and branch protection are required risk controls for each public milestone.
 - Milestones are not considered complete until automated checks are passing and merge protections are enforced on `main`.
+- Licensing, privacy, and market positioning docs are tracked alongside engineering milestones:
+  - `docs/policy/licensing-strategy.md`
+  - `docs/policy/data-governance-baseline.md`
+  - `docs/strategy/market-wedge.md`
 
 ## Readiness Snapshot (2026-02-25)
 - Week 1 (`iris-transport-core`): `In Progress / Operationally Gated`.
