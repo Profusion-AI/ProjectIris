@@ -37,9 +37,10 @@ As components mature, add component-local commands in each folder README (for ex
 - Require automated checks before merge on protected branches to reduce release regressions, incident response cost, and customer trust risk.
 - Keep branch protection enabled for default branches with at least:
   - required status checks from GitHub Actions,
-  - required pull request review approvals,
-  - stale review dismissal,
   - conversation resolution before merge.
+- Pull requests require passing status checks (`repo-gate` and `test`). Required review approvals
+  are currently set to **0** during the bootstrap phase; this will be tightened to ≥1 before the
+  first external user milestone. See `docs/runbooks/known-issues.md` (GOV-001) for the open item.
 - `repo-gate` and `test` are required branch protection contexts for `main` and must pass on every merge path.
 - `repo-gate` enforces AGPLv3 SPDX headers (`SPDX-License-Identifier: AGPL-3.0-only`) on newly added core source files under:
   - `services/iris-server/**`
