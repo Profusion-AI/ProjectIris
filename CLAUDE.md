@@ -8,6 +8,22 @@ Kyle is CEO/Operator. Codex is senior architect/reviewer.
 Default division: **Claude builds -> Codex reviews -> Kyle approves**.
 Codex may implement directly when Kyle explicitly invokes override/bypass, in **any scope**.
 
+## Project Direction And Vision (Non-Technical Anchor)
+ProjectIris is currently a working foundation, not a user-ready product.
+
+What is proven and operational:
+- A transport core that runs in real-time and buffered modes, passes automated checks, and produces reproducible performance evidence.
+- A server runtime that orchestrates transport sessions, enforces guardrails (session TTL and concurrency caps), and runs contract/perf validation in CI.
+
+What is not done yet:
+- No end-user-ready product surface for external customers.
+- No production data system or content layer in MVP scope (artifact-backed evidence only).
+- The next major milestone is the minimal web player integration path that external developers can touch.
+
+Big-picture thesis:
+- Prove the hardest technical risks first (transport correctness and performance), then expand into product surfaces.
+- Build toward a much more efficient video platform by collapsing stack layers and reducing bandwidth/compute waste versus legacy pipelines.
+
 ## Development Mode Rules
 Use two explicit modes:
 - **Prototype mode:** fast exploration and throwaway experiments.

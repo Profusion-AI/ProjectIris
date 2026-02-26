@@ -29,8 +29,25 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Install npm dependencies
+        working-directory: apps/player-web
+        run: npm ci
+
       - name: TypeScript type check
-        run: npx --yes -p typescript@5.7.3 tsc --project apps/player-web/tsconfig.json
+        working-directory: apps/player-web
+        run: npm run typecheck
+
+      - name: Vite build
+        working-directory: apps/player-web
+        run: npm run build
+
+      - name: Install Playwright browsers
+        working-directory: apps/player-web
+        run: npx playwright install --with-deps chromium
+
+      - name: Browser smoke test
+        working-directory: apps/player-web
+        run: npm run test:browser
 
       - uses: actions/setup-python@v5
         with:

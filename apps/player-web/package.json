@@ -1,0 +1,21 @@
+{
+  "name": "@projectiris/player-web",
+  "version": "0.1.0",
+  "description": "Iris Player Web MVP — session bootstrap, WebSocket frame bridge, QoS telemetry",
+  "license": "Apache-2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --project tsconfig.json",
+    "build": "vite build",
+    "preview": "vite preview",
+    "dev": "vite",
+    "pretest:browser": "npm run build",
+    "test:browser": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0",
+    "typescript": "5.7.3",
+    "vite": "^6.1.0"
+  }
+}
