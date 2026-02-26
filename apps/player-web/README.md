@@ -8,19 +8,45 @@ TypeScript web player integration surface intended for Apache-licensed distribut
 - Render frames to `<canvas>`.
 - Poll QoS telemetry from `/player/sessions/{session_id}/metrics`.
 
-## Local Run
-Serve this folder statically and proxy API/websocket requests to `iris-server` on port `8080`.
+## Setup
 
-Example static server:
+From repository root (`/home/kyle/ProjectIris`):
+
+**Install** (once, generates lockfile):
 ```bash
-cd /home/kyle/ProjectIris/apps/player-web
-python3 -m http.server 5173
+cd apps/player-web
+npm install
 ```
 
-Then open `http://localhost:5173/index.html`.
+## Development
 
-## Type Check
+**Dev server** (with `/player/` proxy to iris-server):
 ```bash
-cd /home/kyle/ProjectIris
-npx --yes -p typescript@5.7.3 tsc --project apps/player-web/tsconfig.json
+npm run dev
+```
+Opens at `http://localhost:5173`. iris-server must be running on port 8080.
+
+**Start iris-server** (run from repository root in a separate terminal):
+```bash
+uvicorn app.main:app --app-dir services/iris-server --port 8080
+```
+
+## Build
+
+**Vite build** (produces `dist/`):
+```bash
+npm run build
+```
+
+## Testing
+
+**Browser smoke test** (Playwright headless Chromium):
+```bash
+npm run test:browser
+```
+Builds + serves the app preview, then validates built-page DOM. No iris-server required.
+
+**Type check**:
+```bash
+npm run typecheck
 ```

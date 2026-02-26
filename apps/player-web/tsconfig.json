@@ -8,5 +8,6 @@
     "lib": ["DOM", "ES2020"],
     "skipLibCheck": true
   },
-  "include": ["src/client.ts"]
+  "include": ["src/client.ts"],
+  "references": [{ "path": "./tsconfig.node.json" }]
 }
