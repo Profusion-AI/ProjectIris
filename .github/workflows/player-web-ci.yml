@@ -8,6 +8,7 @@ on:
       - 'tests/e2e/**'
       - 'tests/helpers/**'
       - 'services/iris-server/app/**'
+      - 'docs/runbooks/player-web-demo.md'
       - '.github/workflows/player-web-ci.yml'
   push:
     branches:
@@ -17,6 +18,7 @@ on:
       - 'tests/e2e/**'
       - 'tests/helpers/**'
       - 'services/iris-server/app/**'
+      - 'docs/runbooks/player-web-demo.md'
       - '.github/workflows/player-web-ci.yml'
 
 jobs:
@@ -45,7 +47,7 @@ jobs:
         working-directory: apps/player-web
         run: npx playwright install --with-deps chromium
 
-      - name: Browser smoke test
+      - name: Browser acceptance tests (5 scenarios)
         working-directory: apps/player-web
         run: npm run test:browser
 
