@@ -32,7 +32,26 @@ Goal: prove social-state scalability and linear behavior under load.
   - `docs/policy/data-governance-baseline.md`
   - `docs/strategy/market-wedge.md`
 
-## Readiness Snapshot (2026-02-25)
+## Readiness Snapshot (2026-02-27)
+- Week 1 (`iris-transport-core`): `In Progress / Operationally Gated`.
+  - Delivered: Rust relay/sender/receiver binaries, framing/profile logic, smoke and CI baseline.
+  - Remaining: benchmark evidence discipline per release, authn/authz and abuse-resistance hardening, additional protocol robustness/interoperability coverage.
+- Week 2 (governance and CI controls): `Delivered`.
+  - Delivered: branch protection wiring (`repo-gate` + `test`), repo guard checks, CI policy enforcement, docs fast-lane automation.
+  - Open: GOV-001 — required PR approval count at 0; resolution required before external-user milestone (see `docs/runbooks/known-issues.md`).
+- Week 3 (`iris-server`): `GO (Conditional), implementation merged`.
+  - Delivered: FastAPI runtime bootstrap, OpenAPI contract validation, benchmark harness, session/token orchestration endpoints.
+  - Remaining: auth token lifecycle tightening, guardrail test coverage extension.
+- Week 4 (hardening): `Delivered`.
+  - Delivered: session TTL/revocation, concurrency limits, internal control token hardening, benchmark artifact discipline, expanded e2e checks, 72h review remediation complete.
+- Week 5 (`iris-player-web`): `GO (Delivered, Conditional)`.
+  - Delivered: formal npm project with Apache-2.0, Vite dev/build/typecheck workflow, Playwright browser smoke, `player-web-ci` pipeline, server-side e2e.
+  - Remaining: evolve DOM smoke test to full live-session browser journey, developer embedding guide.
+- Ops open items:
+  - CI: `transport-core-ci` push trigger now always runs on `main` commits (fixed 2026-02-27); `test` check will be consistently visible.
+  - Docs: `docs-daily-sync` nightly auto-PR blocked by GitHub Actions PR-creation permission (repo setting). Manual `gh pr create --base main --head docs-staging` required when a docs delta exists until the setting is enabled.
+
+## Readiness Snapshot (2026-02-25) — superseded by 2026-02-27 snapshot above
 - Week 1 (`iris-transport-core`): `In Progress / Operationally Gated`.
 - Completed:
   - Rust transport PoC scaffold and CLI flows added under `services/transport-core/`.
