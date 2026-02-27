@@ -33,3 +33,7 @@ target/
 # JS tooling
 .next/
 .turbo/
+
+# Playwright MCP tool artifacts
+.playwright-mcp/
+player-*.png
