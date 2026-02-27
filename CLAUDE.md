@@ -90,6 +90,13 @@ For **★★★★☆/★★★★★** changes, provide:
 - **ORANGE**: major revision required; Kyle acknowledgment is required before rework starts and before status is cleared.
 - **RED**: stop and re-scope; Kyle acknowledgment required before rework authorization.
 
+## Docs Fast-Lane (docs-staging branch)
+`docs/**`-only changes reach `main` via `docs-staging` → PR → merge, not via a feature branch.
+
+**Known limitation:** the `docs-daily-sync` GitHub Actions workflow cannot auto-create the sync PR because the repo setting "Allow GitHub Actions to create and approve pull requests" is disabled (Settings → Actions → General). When triggering a fast-lane sync, create the PR manually with `gh pr create --base main --head docs-staging`. The rest of the workflow (diff scan, CI checks, merge) proceeds normally once the PR exists.
+
+To fix permanently: enable "Allow GitHub Actions to create and approve pull requests" in repo settings.
+
 ## Repository Pointers
 - Roadmap: `docs/roadmap/build-in-public.md`
 - Runtime ADR: `docs/architecture/adr-0001-runtime-and-deployment.md`
