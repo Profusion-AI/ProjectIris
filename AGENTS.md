@@ -82,6 +82,13 @@ Before moving forward, Claude must provide:
 - Rollback plan.
 - Residual risks.
 
+## Docs Fast-Lane (docs-staging branch)
+`docs/**`-only changes reach `main` via `docs-staging` → PR → merge, not via a feature branch.
+
+**Known limitation:** the `docs-daily-sync` GitHub Actions workflow cannot auto-create the sync PR because the repo setting "Allow GitHub Actions to create and approve pull requests" is disabled (Settings → Actions → General). When triggering a fast-lane sync, create the PR manually with `gh pr create --base main --head docs-staging`. The rest of the workflow (diff scan, CI checks, merge) proceeds normally once the PR exists.
+
+To fix permanently: enable "Allow GitHub Actions to create and approve pull requests" in repo settings.
+
 ## Working Rules
 - Keep changes scoped; avoid opportunistic refactors during critical-path work.
 - Never commit credentials.
