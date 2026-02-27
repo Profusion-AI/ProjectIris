@@ -21,7 +21,7 @@ export function renderMetricPill(container: HTMLElement, model: PlayerStatusMode
       : "";
 
   container.innerHTML = `
-    <div class="metrics-strip" data-testid="metrics-strip-inner">
+    <div class="metrics-inner" data-testid="metrics-strip-inner">
       ${modePill}${latencyPill}
     </div>
   `;

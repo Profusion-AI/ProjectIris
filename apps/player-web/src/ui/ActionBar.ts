@@ -15,14 +15,14 @@ export function renderActionBar(
     state === "failed";
 
   const resetBtn = showReset
-    ? `<button type="button" id="reset-btn" data-testid="reset-btn">Reset</button>`
+    ? `<button type="button" id="reset-btn" data-testid="reset-btn" class="btn-ghost">Reset</button>`
     : "";
 
   container.innerHTML = `
     <div class="action-bar" data-testid="action-bar-inner">
-      <form id="session-form" data-testid="session-form">
-        <label>
-          Profile
+      <form id="session-form" data-testid="session-form" class="controls-form">
+        <label class="field">
+          <span class="field-lbl">Profile</span>
           <select id="profile" name="profile">
             <option value="real-time">real-time</option>
             <option value="buffered">buffered</option>
@@ -32,6 +32,7 @@ export function renderActionBar(
           type="submit"
           id="connect-btn"
           data-testid="connect-btn"
+          class="btn-primary"
           ${isBusy ? "disabled" : ""}
         >${isBusy ? "Connecting…" : "Connect"}</button>
         ${resetBtn}

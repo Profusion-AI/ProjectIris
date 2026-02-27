@@ -87,10 +87,10 @@ Status banner shows **failed**. Error panel appears with a Retry button.
 
 ### State 5 — Retry
 
-> "Retry immediately re-enters connecting state. Once iris-server is back, the
-> transition to streaming_ready is automatic."
+> "Retry returns the player to idle state. Once iris-server is back, click
+> Connect to start a new session."
 
-Click **Retry Connection**. Status → **idle**. Restart iris-server, click **Connect** again.
+Click **Retry Connection**. Status → **idle**. Restart iris-server, then click **Connect** again to begin a new session.
 
 ---
 

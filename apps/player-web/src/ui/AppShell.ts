@@ -10,20 +10,27 @@ export interface AppShellSlots {
 
 export function mountAppShell(root: HTMLElement): AppShellSlots {
   root.innerHTML = `
-    <main class="app-shell" data-testid="app-shell">
-      <section class="hero">
-        <h1>Iris Player Web MVP</h1>
-        <p>Session bootstrap · WebSocket frame bridge · QoS telemetry</p>
-      </section>
-      <div id="status-banner-slot" data-testid="status-banner"></div>
-      <div id="metrics-strip-slot" data-testid="metrics-strip"></div>
-      <div id="action-bar-slot" data-testid="action-bar"></div>
-      <div id="error-panel-slot" data-testid="error-panel"></div>
-      <section class="card render-section">
-        <h2>Render Surface</h2>
+    <div class="embed" data-testid="app-shell">
+      <header class="embed-head">
+        <div class="brand">
+          <span class="brand-glyph" aria-hidden="true">&#9672;</span>
+          <span class="brand-name">IRIS</span>
+          <span class="brand-tag">PLAYER</span>
+        </div>
+        <div id="status-banner-slot" data-testid="status-banner"></div>
+      </header>
+
+      <div class="stage-wrap">
         <canvas id="frame-canvas" width="640" height="360"></canvas>
-      </section>
-    </main>
+        <div id="metrics-strip-slot" class="metrics-pos" data-testid="metrics-strip"></div>
+      </div>
+
+      <div id="error-panel-slot" data-testid="error-panel"></div>
+
+      <footer class="embed-foot">
+        <div id="action-bar-slot" data-testid="action-bar"></div>
+      </footer>
+    </div>
   `;
 
   return {
