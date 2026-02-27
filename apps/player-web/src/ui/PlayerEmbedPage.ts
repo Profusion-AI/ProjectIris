@@ -127,7 +127,7 @@ export class PlayerEmbedPage {
       window.clearInterval(this.metricsPoll);
       this.metricsPoll = undefined;
     }
-    if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+    if (this.socket && this.socket.readyState < WebSocket.CLOSING) {
       this.socket.close();
     }
     this.socket = undefined;

@@ -90,7 +90,7 @@ Status banner shows **failed**. Error panel appears with a Retry button.
 > "Retry returns the player to idle state. Once iris-server is back, click
 > Connect to start a new session."
 
-Click **Retry Connection**. Status → **idle**. Restart iris-server, then click **Connect** again to begin a new session.
+Click **Retry**. Status → **idle**. Restart iris-server, then click **Connect** again to begin a new session.
 
 ---
 
