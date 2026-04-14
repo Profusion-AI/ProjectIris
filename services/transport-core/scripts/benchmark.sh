@@ -118,6 +118,9 @@ if [[ -n "${CONTROL_TOKEN}" ]]; then
   relay_args+=(--required-control-token "${CONTROL_TOKEN}")
 fi
 
+# Keep cold CI compilation time out of the relay readiness timeout.
+cargo build --quiet --bins
+
 cargo run --quiet --bin iris-relay -- "${relay_args[@]}" >"${OUT_DIR}/relay.log" 2>&1 &
 RELAY_PID=$!
 wait_for_relay_ready
@@ -132,6 +135,10 @@ extract_field() {
   else
     grep -Eo "${pattern}" "${file}" | tail -n 1 | cut -d= -f2
   fi
+}
+
+strip_ansi() {
+  sed -E $'s/\x1B\\[[0-9;]*[[:alpha:]]//g'
 }
 
 run_profile() {
@@ -194,10 +201,13 @@ run_profile() {
   fi
 
   if command -v rg >/dev/null 2>&1; then
-    relay_line="$(rg "subscriber complete" "${OUT_DIR}/relay.log" | rg "profile=\"?${profile}\"?" | tail -n 1 || true)"
+    relay_line="$(rg "subscriber complete" "${OUT_DIR}/relay.log" | strip_ansi | rg "profile=\"?${profile}\"?" | tail -n 1 || true)"
+  else
+    relay_line="$(grep -E "subscriber complete" "${OUT_DIR}/relay.log" | strip_ansi | grep -E "profile=\"?${profile}\"?" | tail -n 1 || true)"
+  fi
+  if command -v rg >/dev/null 2>&1; then
     dropped_frames="$(printf '%s' "${relay_line}" | rg -o 'local_frames_dropped=[0-9]+' | cut -d= -f2 || true)"
   else
-    relay_line="$(grep -E "subscriber complete" "${OUT_DIR}/relay.log" | grep -E "profile=\"?${profile}\"?" | tail -n 1 || true)"
     dropped_frames="$(printf '%s' "${relay_line}" | grep -Eo 'local_frames_dropped=[0-9]+' | cut -d= -f2 || true)"
   fi
 
